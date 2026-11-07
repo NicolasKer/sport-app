@@ -1,0 +1,10 @@
+{
+  "name": "IronPulse — Suivi Entraînement Nicolas",
+  "short_name": "IronPulse",
+  "description": "Application mobile ludique connectée au Google Sheet Suivi Entraînement & Recomposition",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b0f19",
+  "theme_color": "#0b0f19",
+  "orientation": "portrait"
+}
