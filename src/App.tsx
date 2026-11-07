@@ -1,0 +1,426 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  BarChart3,
+  Calendar,
+  CheckCircle2,
+  Cloud,
+  Dumbbell,
+  Flame,
+  Play,
+  RefreshCw,
+  Settings,
+  Sparkles,
+  Zap,
+} from 'lucide-react';
+import {
+  buildBatchOperationsForSession,
+  buildWorkoutSession,
+  clearOfflineQueue,
+  fetchSheetData,
+  getOfflineQueue,
+  loadActiveSessionDraft,
+  ParsedSheetData,
+  saveActiveSessionDraft,
+  syncBatchOperations,
+} from './services/sheetsApi';
+import { ActiveWorkoutSession, JournalRow } from './types/workout';
+import { WorkoutSessionView } from './components/WorkoutSessionView';
+import { HistoryAndStatsView } from './components/HistoryAndStatsView';
+import { SettingsModal } from './components/SettingsModal';
+
+function getTodayIso(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+export const App: React.FC = () => {
+  const [sheetData, setSheetData] = useState<ParsedSheetData | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [activeTab, setActiveTab] = useState<'home' | 'history'>('home');
+  const [activeSession, setActiveSession] = useState<ActiveWorkoutSession | null>(() =>
+    loadActiveSessionDraft()
+  );
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayIso());
+  const [syncStatusText, setSyncStatusText] = useState<string>('Connecté');
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    window.setTimeout(() => {
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, 3200);
+  };
+
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const data = await fetchSheetData();
+      setSheetData(data);
+      setSyncStatusText(
+        data.source === 'gsheets-plugin'
+          ? 'Sheet Live'
+          : data.source === 'apps-script'
+          ? 'Cloud Live'
+          : 'Hors-ligne'
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleStartPreCreated = (pre: {
+    date: string;
+    sessionName: string;
+    rows: JournalRow[];
+  }) => {
+    if (!sheetData) return;
+    const session = buildWorkoutSession(sheetData, pre.sessionName, pre.date, pre.rows);
+    setActiveSession(session);
+    saveActiveSessionDraft(session);
+  };
+
+  const handleStartTemplate = (sessionId: string) => {
+    if (!sheetData) return;
+    // Check if there is already a pre-created session for this date + sessionId
+    const matchingPre = sheetData.preCreatedSessions.find(
+      (p) => p.date === selectedDate && p.sessionName === sessionId
+    );
+    const session = buildWorkoutSession(
+      sheetData,
+      sessionId,
+      selectedDate,
+      matchingPre?.rows
+    );
+    setActiveSession(session);
+    saveActiveSessionDraft(session);
+  };
+
+  const handleUpdateActiveSession = async (
+    updated: ActiveWorkoutSession,
+    triggerSync = false
+  ) => {
+    setActiveSession(updated);
+    saveActiveSessionDraft(updated);
+
+    if (triggerSync) {
+      setIsSyncing(true);
+      const ops = buildBatchOperationsForSession(updated);
+      const res = await syncBatchOperations(ops);
+      setIsSyncing(false);
+      if (res.ok) {
+        setSyncStatusText('Synchronisé ✓');
+      } else {
+        setSyncStatusText('Sauvé localement');
+      }
+    }
+  };
+
+  const handleFinishWorkout = async () => {
+    if (!activeSession) return;
+    setIsSyncing(true);
+    const ops = buildBatchOperationsForSession(activeSession);
+    const res = await syncBatchOperations(ops);
+    setIsSyncing(false);
+
+    saveActiveSessionDraft(null);
+    setActiveSession(null);
+
+    if (res.ok) {
+      showToast(`Séance ${activeSession.sessionName} enregistrée dans Google Sheets ! 🏆`);
+      await loadData();
+    } else {
+      showToast('Séance sauvegardée sur le téléphone (en attente de réseau)');
+    }
+  };
+
+  const handleFlushOfflineQueue = async () => {
+    const q = getOfflineQueue();
+    if (q.length === 0) return;
+    setIsSyncing(true);
+    const res = await syncBatchOperations(q);
+    setIsSyncing(false);
+    if (res.ok) {
+      clearOfflineQueue();
+      showToast('Toutes les modifications en attente ont été envoyées au Sheet !');
+      await loadData();
+    } else {
+      showToast(res.error || 'Impossible de synchroniser pour le moment');
+    }
+  };
+
+  if (activeSession) {
+    return (
+      <>
+        <WorkoutSessionView
+          session={activeSession}
+          syncStatusText={syncStatusText}
+          isSyncing={isSyncing}
+          onUpdateSession={handleUpdateActiveSession}
+          onFinishWorkout={handleFinishWorkout}
+          onExitWithoutFinishing={() => {
+            setActiveSession(null);
+          }}
+        />
+        {toastMessage && <div className="toast-banner">{toastMessage}</div>}
+      </>
+    );
+  }
+
+  const offlineCount = getOfflineQueue().length;
+  const savedDraft = loadActiveSessionDraft();
+
+  return (
+    <div className="app-shell">
+      {/* Top App Bar */}
+      <header className="app-topbar">
+        <div className="brand-block">
+          <div className="brand-logo">
+            <Dumbbell size={20} />
+          </div>
+          <div>
+            <div className="brand-name">IronPulse</div>
+            <div className="brand-sub">Suivi &amp; Recomposition · Nicolas</div>
+          </div>
+        </div>
+
+        <div className="topbar-actions">
+          <button
+            type="button"
+            className={`conn-badge ${sheetData?.source === 'gsheets-plugin' ? 'live' : ''}`}
+            onClick={() => setIsSettingsOpen(true)}
+          >
+            <Cloud size={14} />
+            <span>
+              {sheetData?.source === 'gsheets-plugin'
+                ? 'Sheet Connecté'
+                : sheetData?.source === 'apps-script'
+                ? 'Apps Script'
+                : 'Mode Local'}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="icon-ghost-btn"
+            onClick={loadData}
+            aria-label="Rafraîchir les données du Google Sheet"
+          >
+            <RefreshCw size={18} className={isLoading ? 'spin' : ''} />
+          </button>
+          <button
+            type="button"
+            className="icon-ghost-btn"
+            onClick={() => setIsSettingsOpen(true)}
+            aria-label="Paramètres de synchronisation"
+          >
+            <Settings size={18} />
+          </button>
+        </div>
+      </header>
+
+      <main className="app-content">
+        {activeTab === 'home' ? (
+          <div className="home-view">
+            {/* Resume unfinished draft if present */}
+            {savedDraft && (
+              <section className="resume-banner">
+                <div>
+                  <span className="resume-tag">Séance en cours</span>
+                  <h3>
+                    {savedDraft.sessionName} ({savedDraft.date})
+                  </h3>
+                  <p>
+                    {
+                      savedDraft.exercises.reduce(
+                        (acc, ex) => acc + ex.sets.filter((s) => s.completed).length,
+                        0
+                      )
+                    }{' '}
+                    séries validées
+                  </p>
+                </div>
+                <div className="resume-actions">
+                  <button
+                    type="button"
+                    className="primary-play-btn"
+                    onClick={() => setActiveSession(savedDraft)}
+                  >
+                    <Play size={16} /> Reprendre
+                  </button>
+                  <button
+                    type="button"
+                    className="discard-draft-btn"
+                    onClick={() => {
+                      saveActiveSessionDraft(null);
+                      setSheetData((prev) => (prev ? { ...prev } : null));
+                    }}
+                  >
+                    Fermer
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {/* Pre-created sessions detected directly in Google Sheet (e.g. rows 101-125) */}
+            {sheetData && sheetData.preCreatedSessions.length > 0 && (
+              <section className="precreated-section">
+                <div className="section-heading">
+                  <Sparkles size={18} className="accent-icon" />
+                  <h2>Séance prête dans ton Google Sheet</h2>
+                </div>
+                {sheetData.preCreatedSessions.map((pre) => {
+                  const uniqueExCount = new Set(pre.rows.map((r) => r.exercise)).size;
+                  return (
+                    <div key={`${pre.date}_${pre.sessionName}`} className="precreated-card">
+                      <div className="precreated-top">
+                        <div>
+                          <span className="precreated-badge">
+                            Prête à remplir · Lignes {pre.rows[0]?.sheetRowNumber}–
+                            {pre.rows[pre.rows.length - 1]?.sheetRowNumber}
+                          </span>
+                          <h3>{pre.sessionName}</h3>
+                          <p className="precreated-meta">
+                            📅 {pre.date} · {uniqueExCount} exercices ({pre.rows.length} séries)
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="start-precreated-btn"
+                          onClick={() => handleStartPreCreated(pre)}
+                        >
+                          <Play size={18} />
+                          <span>Go !</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </section>
+            )}
+
+            {/* Date Picker + Start New Workout from Référence Programme */}
+            <section className="templates-section">
+              <div className="templates-header-row">
+                <div className="section-heading">
+                  <Zap size={18} />
+                  <h2>Ton Programme (3 séances)</h2>
+                </div>
+                <div className="date-picker-inline">
+                  <label htmlFor="workout-date-picker">
+                    <Calendar size={14} /> Date :
+                  </label>
+                  <input
+                    id="workout-date-picker"
+                    name="workoutDate"
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="templates-grid">
+                {sheetData?.templates.map((tpl) => {
+                  const supersetCount = new Set(
+                    tpl.exercises.map((e) => e.supersetGroup).filter(Boolean)
+                  ).size;
+                  const totalSets = tpl.exercises.reduce((s, e) => s + e.setsCount, 0);
+
+                  return (
+                    <article key={tpl.id} className="template-card">
+                      <div className="template-card-top">
+                        <div>
+                          <span className="day-pill">{tpl.dayBadge}</span>
+                          <h3>{tpl.id}</h3>
+                        </div>
+                        <button
+                          type="button"
+                          className="launch-tpl-btn"
+                          onClick={() => handleStartTemplate(tpl.id)}
+                        >
+                          <Play size={16} /> Démarrer
+                        </button>
+                      </div>
+
+                      <div className="template-chips">
+                        <span>{tpl.exercises.length} exercices</span>
+                        <span>·</span>
+                        <span>{totalSets} séries</span>
+                        {supersetCount > 0 && (
+                          <>
+                            <span>·</span>
+                            <span className="superset-tag">Superset inclus</span>
+                          </>
+                        )}
+                      </div>
+
+                      <ul className="template-ex-preview">
+                        {tpl.exercises.map((ex) => (
+                          <li key={`${ex.codePrefix}_${ex.name}`}>
+                            <span className="tpl-ex-code">{ex.codePrefix}</span>
+                            <span className="tpl-ex-name">{ex.name}</span>
+                            <span className="tpl-ex-sets">
+                              {ex.setsCount > 1
+                                ? `${ex.setsCount}×${ex.targetReps}`
+                                : ex.targetReps}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
+        ) : (
+          sheetData && <HistoryAndStatsView journalRows={sheetData.journalRows} />
+        )}
+      </main>
+
+      {/* Bottom Tab Navigation */}
+      <nav className="bottom-tabbar" aria-label="Navigation principale">
+        <button
+          type="button"
+          className={`tabbar-item ${activeTab === 'home' ? 'active' : ''}`}
+          onClick={() => setActiveTab('home')}
+        >
+          <Flame size={20} />
+          <span>Entraînement</span>
+        </button>
+        <button
+          type="button"
+          className={`tabbar-item ${activeTab === 'history' ? 'active' : ''}`}
+          onClick={() => setActiveTab('history')}
+        >
+          <BarChart3 size={20} />
+          <span>Historique &amp; PR</span>
+        </button>
+      </nav>
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        dataSource={sheetData?.source || 'local-cache'}
+        offlineQueueCount={offlineCount}
+        onClose={() => setIsSettingsOpen(false)}
+        onRefreshSheet={loadData}
+        onFlushOfflineQueue={handleFlushOfflineQueue}
+      />
+
+      {toastMessage && (
+        <div className="toast-banner" role="status">
+          <CheckCircle2 size={18} />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+    </div>
+  );
+};
