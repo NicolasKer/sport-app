@@ -248,7 +248,7 @@ export function parseSheetsPayload(rawSheets: Record<string, string[][]>, source
     });
   }
 
-  // 3. Identify pre-created or in-progress today sessions
+  // 3. Identify pre-created sessions (only sessions where NO exercise has been filled yet, or dated today/future)
   const sessionGroups = new Map<string, JournalRow[]>();
   for (const row of journalRows) {
     const key = `${row.date}__${row.sessionName}`;
@@ -256,18 +256,28 @@ export function parseSheetsPayload(rawSheets: Record<string, string[][]>, source
     sessionGroups.get(key)!.push(row);
   }
 
+  const todayIso = new Date().toISOString().slice(0, 10);
   const preCreatedSessions: ParsedSheetData['preCreatedSessions'] = [];
   for (const [, rows] of sessionGroups) {
-    const hasEmptyStrengthRows = rows.some(
+    const sessionDate = rows[0]?.date || '';
+    const hasAnyFilled = rows.some(
+      (r) =>
+        (r.weightKg !== null && r.weightKg > 0) ||
+        (r.reps !== null && r.reps > 0) ||
+        r.feeling !== '' ||
+        r.notes !== ''
+    );
+    const hasUnfilledRows = rows.some(
       (r) =>
         !r.exercise.toLowerCase().includes('cardio') &&
         (r.weightKg === null || r.weightKg === 0) &&
-        (r.reps === null || r.reps === 0) &&
         r.feeling === ''
     );
-    if (hasEmptyStrengthRows && rows.length > 0) {
+
+    // Propose only if completely untouched OR if it's today's/future session still in progress
+    if (rows.length > 0 && (!hasAnyFilled || (sessionDate >= todayIso && hasUnfilledRows))) {
       preCreatedSessions.push({
-        date: rows[0].date,
+        date: sessionDate,
         sessionName: rows[0].sessionName,
         rows,
       });
