@@ -127,7 +127,19 @@ export const App: React.FC = () => {
   const handleFinishWorkout = async () => {
     if (!activeSession) return;
     setIsSyncing(true);
-    const ops = buildBatchOperationsForSession(activeSession);
+    // If the user finishes the workout, ensure all sets they went through are marked completed
+    // if none or only some were explicitly ticked with the per-set button
+    const completedSession: ActiveWorkoutSession = {
+      ...activeSession,
+      exercises: activeSession.exercises.map((ex) => ({
+        ...ex,
+        sets: ex.sets.map((s) => ({
+          ...s,
+          completed: true,
+        })),
+      })),
+    };
+    const ops = buildBatchOperationsForSession(completedSession);
     const res = await syncBatchOperations(ops);
     setIsSyncing(false);
 
@@ -139,6 +151,7 @@ export const App: React.FC = () => {
       await loadData();
     } else {
       showToast('Séance sauvegardée sur le téléphone (en attente de réseau)');
+      await loadData();
     }
   };
 

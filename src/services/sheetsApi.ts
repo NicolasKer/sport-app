@@ -584,22 +584,20 @@ export function buildBatchOperationsForSession(session: ActiveWorkoutSession): B
 
   for (const ex of session.exercises) {
     ex.sets.forEach((s, idx) => {
-      // Only write sets that the user has explicitly validated (or cleared back if pre-created)
-      if (!s.completed && !s.sheetRowNumber) {
+      // NEVER emit a write operation for an unvalidated set!
+      // Otherwise opening a session and syncing one set would overwrite other rows with blanks.
+      if (!s.completed) {
         return;
       }
 
       const isFirstSet = idx === 0;
       const isLastSet = idx === ex.sets.length - 1;
-      const palierStr =
-        s.completed && (isFirstSet || isLastSet) && ex.levelValidated ? 'Oui' : '';
-      const noteStr = s.completed ? s.notes || (isFirstSet ? ex.exerciseNotes : '') : '';
+      const palierStr = (isFirstSet || isLastSet) && ex.levelValidated ? 'Oui' : '';
+      const noteStr = s.notes || (isFirstSet ? ex.exerciseNotes : '');
 
       if (s.sheetRowNumber) {
         const formulaOrZero = ex.isCardio
           ? ''
-          : s.completed
-          ? `=F${s.sheetRowNumber}*G${s.sheetRowNumber}`
           : `=F${s.sheetRowNumber}*G${s.sheetRowNumber}`;
 
         const rowValues: (string | number)[] = [
@@ -607,11 +605,11 @@ export function buildBatchOperationsForSession(session: ActiveWorkoutSession): B
           session.sessionName,                         // Col C: Séance
           ex.exerciseName,                             // Col D: Exercice
           s.setNumber,                                 // Col E: Série N°
-          s.completed && !ex.isCardio ? s.weightKg : '', // Col F: Charge (kg) - empty if not validated!
-          s.completed && !ex.isCardio ? s.reps : '',     // Col G: Répétitions - empty if not validated!
+          ex.isCardio ? '' : s.weightKg,               // Col F: Charge (kg)
+          ex.isCardio ? '' : s.reps,                   // Col G: Répétitions
           safeSheetString(s.targetReps || ex.targetReps), // Col H: Cible Reps
           safeSheetString(s.rir || ex.rir),            // Col I: RIR
-          s.completed ? s.feeling || 'Modéré' : '',    // Col J: Ressenti
+          s.feeling || 'Modéré',                       // Col J: Ressenti
           formulaOrZero,                               // Col K: Tonnage formula preserved
           palierStr,                                   // Col L: Validation Palier
           noteStr,                                     // Col M: Remarques
@@ -622,7 +620,7 @@ export function buildBatchOperationsForSession(session: ActiveWorkoutSession): B
           range: `'Journal d'entraînement'!B${s.sheetRowNumber}:M${s.sheetRowNumber}`,
           data: [rowValues],
         });
-      } else if (s.completed) {
+      } else {
         const tonnage = ex.isCardio ? 0 : Math.round(s.weightKg * s.reps * 10) / 10;
         const rowValues: (string | number)[] = [
           session.date,
@@ -714,7 +712,17 @@ export async function syncBatchOperations(
 export function getOfflineQueue(): BatchOperation[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_OFFLINE_QUEUE);
-    return raw ? JSON.parse(raw) : [];
+    const parsed: BatchOperation[] = raw ? JSON.parse(raw) : [];
+    return parsed.filter((item) => {
+      if (item.op !== 'write') return true;
+      const row = item.data?.[0];
+      return Boolean(
+        row &&
+          ((row[4] !== '' && row[4] !== null && row[4] !== undefined) ||
+            (row[5] !== '' && row[5] !== null && row[5] !== undefined) ||
+            (row[11] !== '' && row[11] !== null && row[11] !== undefined))
+      );
+    });
   } catch {
     return [];
   }
@@ -722,13 +730,24 @@ export function getOfflineQueue(): BatchOperation[] {
 
 export function enqueueOfflineOperations(ops: BatchOperation[]): void {
   const current = getOfflineQueue();
-  // Deduplicate 'write' ranges by replacing older writes to the same row
   const map = new Map<string, BatchOperation>();
   const appends: BatchOperation[] = [];
 
   for (const item of [...current, ...ops]) {
     if (item.op === 'write') {
-      map.set(item.range, item);
+      const row = item.data?.[0];
+      const hasData =
+        row &&
+        ((row[4] !== '' && row[4] !== null && row[4] !== undefined) ||
+          (row[5] !== '' && row[5] !== null && row[5] !== undefined) ||
+          (row[11] !== '' && row[11] !== null && row[11] !== undefined));
+      // Never overwrite an existing non-empty queued write with a blank write
+      if (!hasData && map.has(item.range)) {
+        continue;
+      }
+      if (hasData) {
+        map.set(item.range, item);
+      }
     } else {
       appends.push(item);
     }
