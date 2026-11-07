@@ -248,7 +248,7 @@ export function parseSheetsPayload(rawSheets: Record<string, string[][]>, source
     });
   }
 
-  // 3. Identify pre-created sessions (sessions where all non-cardio rows have null weight/reps and empty feeling)
+  // 3. Identify pre-created or in-progress today sessions
   const sessionGroups = new Map<string, JournalRow[]>();
   for (const row of journalRows) {
     const key = `${row.date}__${row.sessionName}`;
@@ -258,14 +258,14 @@ export function parseSheetsPayload(rawSheets: Record<string, string[][]>, source
 
   const preCreatedSessions: ParsedSheetData['preCreatedSessions'] = [];
   for (const [, rows] of sessionGroups) {
-    const hasAnyFilled = rows.some(
+    const hasEmptyStrengthRows = rows.some(
       (r) =>
-        (r.weightKg !== null && r.weightKg > 0) ||
-        (r.reps !== null && r.reps > 0) ||
-        r.feeling !== '' ||
-        r.notes !== ''
+        !r.exercise.toLowerCase().includes('cardio') &&
+        (r.weightKg === null || r.weightKg === 0) &&
+        (r.reps === null || r.reps === 0) &&
+        r.feeling === ''
     );
-    if (!hasAnyFilled && rows.length > 0) {
+    if (hasEmptyStrengthRows && rows.length > 0) {
       preCreatedSessions.push({
         date: rows[0].date,
         sessionName: rows[0].sessionName,
@@ -525,34 +525,60 @@ export function buildBatchOperationsForSession(session: ActiveWorkoutSession): B
 
   for (const ex of session.exercises) {
     ex.sets.forEach((s, idx) => {
+      // Only write sets that the user has explicitly validated (or cleared back if pre-created)
+      if (!s.completed && !s.sheetRowNumber) {
+        return;
+      }
+
       const isFirstSet = idx === 0;
       const isLastSet = idx === ex.sets.length - 1;
-      const tonnage = ex.isCardio ? 0 : Math.round(s.weightKg * s.reps * 10) / 10;
-      const palierStr = (isFirstSet || isLastSet) && ex.levelValidated ? 'Oui' : '';
-      const noteStr = s.notes || (isFirstSet ? ex.exerciseNotes : '');
-
-      const rowValues: (string | number)[] = [
-        session.date,                                // Col B: Date
-        session.sessionName,                         // Col C: Séance
-        ex.exerciseName,                             // Col D: Exercice
-        s.setNumber,                                 // Col E: Série N°
-        ex.isCardio ? '' : s.weightKg,               // Col F: Charge (kg)
-        ex.isCardio ? '' : s.reps,                   // Col G: Répétitions
-        safeSheetString(s.targetReps || ex.targetReps), // Col H: Cible Reps
-        safeSheetString(s.rir || ex.rir),            // Col I: RIR
-        s.feeling || '',                             // Col J: Ressenti
-        tonnage,                                     // Col K: Tonnage
-        palierStr,                                   // Col L: Validation Palier
-        noteStr,                                     // Col M: Remarques
-      ];
+      const palierStr =
+        s.completed && (isFirstSet || isLastSet) && ex.levelValidated ? 'Oui' : '';
+      const noteStr = s.completed ? s.notes || (isFirstSet ? ex.exerciseNotes : '') : '';
 
       if (s.sheetRowNumber) {
+        const formulaOrZero = ex.isCardio
+          ? ''
+          : s.completed
+          ? `=F${s.sheetRowNumber}*G${s.sheetRowNumber}`
+          : `=F${s.sheetRowNumber}*G${s.sheetRowNumber}`;
+
+        const rowValues: (string | number)[] = [
+          session.date,                                // Col B: Date
+          session.sessionName,                         // Col C: Séance
+          ex.exerciseName,                             // Col D: Exercice
+          s.setNumber,                                 // Col E: Série N°
+          s.completed && !ex.isCardio ? s.weightKg : '', // Col F: Charge (kg) - empty if not validated!
+          s.completed && !ex.isCardio ? s.reps : '',     // Col G: Répétitions - empty if not validated!
+          safeSheetString(s.targetReps || ex.targetReps), // Col H: Cible Reps
+          safeSheetString(s.rir || ex.rir),            // Col I: RIR
+          s.completed ? s.feeling || 'Modéré' : '',    // Col J: Ressenti
+          formulaOrZero,                               // Col K: Tonnage formula preserved
+          palierStr,                                   // Col L: Validation Palier
+          noteStr,                                     // Col M: Remarques
+        ];
+
         ops.push({
           op: 'write',
           range: `'Journal d'entraînement'!B${s.sheetRowNumber}:M${s.sheetRowNumber}`,
           data: [rowValues],
         });
-      } else {
+      } else if (s.completed) {
+        const tonnage = ex.isCardio ? 0 : Math.round(s.weightKg * s.reps * 10) / 10;
+        const rowValues: (string | number)[] = [
+          session.date,
+          session.sessionName,
+          ex.exerciseName,
+          s.setNumber,
+          ex.isCardio ? '' : s.weightKg,
+          ex.isCardio ? '' : s.reps,
+          safeSheetString(s.targetReps || ex.targetReps),
+          safeSheetString(s.rir || ex.rir),
+          s.feeling || 'Modéré',
+          tonnage,
+          palierStr,
+          noteStr,
+        ];
         appendRows.push(rowValues);
       }
     });
