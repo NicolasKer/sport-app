@@ -227,6 +227,40 @@ export const App: React.FC = () => {
       </header>
 
       <main className="app-content">
+        {offlineCount > 0 && (
+          <section className="resume-banner" style={{ marginBottom: '1rem' }}>
+            <div>
+              <span className="resume-tag">Enregistré sur ce téléphone</span>
+              <h3>{offlineCount} série(s) prête(s) à envoyer au Sheet</h3>
+              <p>Tes séries sont bien gardées dans l'Historique de l'appli !</p>
+            </div>
+            <div className="resume-actions">
+              <button
+                type="button"
+                className="primary-play-btn"
+                onClick={handleFlushOfflineQueue}
+                disabled={isSyncing}
+              >
+                <Cloud size={15} /> {isSyncing ? 'Envoi...' : 'Synchro Sheet'}
+              </button>
+              <button
+                type="button"
+                className="discard-draft-btn"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(JSON.stringify(getOfflineQueue()));
+                    showToast('Données copiées ! Tu peux les coller dans le chat Antigravity.');
+                  } catch {
+                    // Ignore
+                  }
+                }}
+              >
+                Copier données
+              </button>
+            </div>
+          </section>
+        )}
+
         {activeTab === 'home' ? (
           <div className="home-view">
             {/* Resume unfinished draft if present */}

@@ -74,9 +74,58 @@ export function normalizeExerciseKey(name: string): string {
   return n.replace(/[^a-z0-9]+/g, '_');
 }
 
+export function applyOfflineQueueToRawSheets(
+  rawSheets: Record<string, string[][]>
+): Record<string, string[][]> {
+  const queue = getOfflineQueue();
+  if (queue.length === 0) return rawSheets;
+
+  const cloned: Record<string, string[][]> = {
+    ...rawSheets,
+    "Journal d'entraînement": (rawSheets["Journal d'entraînement"] || []).map((r) => [...r]),
+  };
+  const journal = cloned["Journal d'entraînement"];
+
+  for (const op of queue) {
+    if (op.op === 'write' && Array.isArray(op.data) && op.data[0]) {
+      // e.g. "'Journal d'entraînement'!B101:M101"
+      const m = op.range.match(/!B(\d+):M(\d+)/i);
+      if (m) {
+        const rowNum = parseInt(m[1], 10);
+        const idx = rowNum - 1;
+        while (journal.length <= idx) {
+          journal.push([]);
+        }
+        const rowVals = op.data[0].map((v) => {
+          const s = String(v ?? '');
+          // If formula like =F101*G101, compute tonnage for display
+          if (s.startsWith('=F')) {
+            const w = Number(op.data[0][4]) || 0;
+            const r = Number(op.data[0][5]) || 0;
+            return String(Math.round(w * r * 10) / 10);
+          }
+          return s.startsWith("'") ? s.slice(1) : s;
+        });
+        journal[idx] = ['', ...rowVals];
+      }
+    } else if (op.op === 'append' && Array.isArray(op.data)) {
+      for (const row of op.data) {
+        const rowVals = row.map((v) => {
+          const s = String(v ?? '');
+          return s.startsWith("'") ? s.slice(1) : s;
+        });
+        journal.push(['', ...rowVals]);
+      }
+    }
+  }
+
+  return cloned;
+}
+
 export function parseSheetsPayload(rawSheets: Record<string, string[][]>, source: ParsedSheetData['source']): ParsedSheetData {
-  const journalRaw = rawSheets["Journal d'entraînement"] || [];
-  const progRaw = rawSheets['Référence Programme'] || [];
+  const mergedSheets = applyOfflineQueueToRawSheets(rawSheets);
+  const journalRaw = mergedSheets["Journal d'entraînement"] || [];
+  const progRaw = mergedSheets['Référence Programme'] || [];
 
   // 1. Parse Référence Programme (starts at index 4 -> Row 5)
   const programExercises: ProgramExercise[] = [];
