@@ -60,6 +60,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [gasUrl, setGasUrl] = useState<string>(getAppsScriptUrl());
   const [savedNotice, setSavedNotice] = useState<boolean>(false);
   const [copiedScript, setCopiedScript] = useState<boolean>(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [isTesting, setIsTesting] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
@@ -68,6 +70,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setAppsScriptUrl(gasUrl);
     setSavedNotice(true);
     window.setTimeout(() => setSavedNotice(false), 2500);
+  };
+
+  const handleTestConnection = async () => {
+    setIsTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch(gasUrl.trim(), { method: 'GET' });
+      const text = await res.text();
+      if (text.includes('Fonction de script introuvable') || text.includes('Script function not found')) {
+        setTestResult({
+          ok: false,
+          msg: "Google répond : « Fonction doGet introuvable ». Dans l'onglet Apps Script de ton Sheet, appuie sur Ctrl+S (💾), puis Déployer > Gérer les déploiements > ✏️ Modifier > Version : Nouvelle version > Déployer.",
+        });
+      } else {
+        const json = JSON.parse(text);
+        if (json.ok && json.sheets) {
+          setTestResult({
+            ok: true,
+            msg: 'Connexion Google Apps Script 100 % opérationnelle ! Ton téléphone lit et écrit en direct dans ton Sheet en 4G/5G.',
+          });
+          onRefreshSheet();
+        } else {
+          setTestResult({
+            ok: false,
+            msg: `Réponse inattendue : ${text.slice(0, 120)}`,
+          });
+        }
+      }
+    } catch (err: any) {
+      setTestResult({
+        ok: false,
+        msg: `Impossible de joindre l'URL Apps Script (${err?.message || 'Erreur réseau / CORS'}). Vérifie que « Qui a accès » est bien sur « Tout le monde ».`,
+      });
+    } finally {
+      setIsTesting(false);
+    }
   };
 
   const handleCopyScript = async () => {
@@ -141,12 +179,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             />
           </div>
 
-          <div className="gas-actions-inline" style={{ margin: '0.65rem 0' }}>
+          <div className="gas-actions-inline" style={{ margin: '0.65rem 0', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <button type="button" className="secondary-btn" onClick={handleCopyScript}>
               <Copy size={14} />
-              <span>{copiedScript ? 'Code Apps Script copié !' : 'Copier le script Code.gs'}</span>
+              <span>{copiedScript ? 'Code Apps Script copié !' : '1. Copier le script Code.gs'}</span>
+            </button>
+            <button
+              type="button"
+              className="primary-btn-sm"
+              onClick={handleTestConnection}
+              disabled={isTesting}
+            >
+              <RefreshCw size={14} className={isTesting ? 'spin' : ''} />
+              <span>{isTesting ? 'Test en cours...' : '2. Tester la connexion 4G/Sheet'}</span>
             </button>
           </div>
+
+          {testResult && (
+            <div
+              style={{
+                padding: '0.7rem 0.85rem',
+                borderRadius: '10px',
+                fontSize: '0.8rem',
+                marginBottom: '0.75rem',
+                background: testResult.ok ? 'rgba(16, 185, 129, 0.16)' : 'rgba(244, 63, 94, 0.16)',
+                border: `1px solid ${testResult.ok ? '#10b981' : '#f43f5e'}`,
+                color: testResult.ok ? '#6ee7b7' : '#fda4af',
+              }}
+            >
+              {testResult.msg}
+            </div>
+          )}
 
           <p className="gas-help-text">
             1. Dans ton Google Sheet : <strong>Extensions &gt; Apps Script</strong>, colle le script copié ci-dessus.
