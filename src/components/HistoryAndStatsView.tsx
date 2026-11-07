@@ -136,17 +136,21 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journa
 
               <div className="history-ex-rows">
                 {Array.from(sess.exercises.entries()).map(([exName, rows]) => {
-                  const setsSummary = rows
-                    .map((r) =>
-                      r.weightKg && r.weightKg > 0
-                        ? `${r.weightKg}kg×${r.reps || 0}`
-                        : r.notes || 'Fait'
-                    )
-                    .join(' · ');
+                  const shortExName = exName.split('(')[0].trim();
                   return (
                     <div key={exName} className="history-ex-line">
-                      <span className="history-ex-title">{exName}</span>
-                      <span className="history-ex-sets">{setsSummary}</span>
+                      <span className="history-ex-title">{shortExName}</span>
+                      <div className="history-ex-badges">
+                        {rows.map((r, idx) => (
+                          <span key={idx} className="history-set-chip">
+                            {r.weightKg && r.weightKg > 0
+                              ? `${r.weightKg}×${r.reps || 0}`
+                              : r.notes
+                              ? r.notes.slice(0, 22)
+                              : 'Fait'}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   );
                 })}

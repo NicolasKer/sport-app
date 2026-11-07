@@ -1351,22 +1351,37 @@ button:focus-visible {
 
 .history-ex-line {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
   font-size: 0.8rem;
+  padding: 0.2rem 0;
 }
 
 .history-ex-title {
   color: var(--text-primary);
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 48%;
 }
 
-.history-ex-sets {
+.history-ex-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.28rem;
+  flex-shrink: 0;
+}
+
+.history-set-chip {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
+  padding: 0.14rem 0.42rem;
+  border-radius: 6px;
+  background: var(--bg-surface);
   color: var(--text-secondary);
-  text-align: right;
+  white-space: nowrap;
 }
 
 /* ==================== MODAL & TOAST ==================== */
