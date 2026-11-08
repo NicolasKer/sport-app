@@ -9,6 +9,7 @@ interface HistoryAndStatsViewProps {
 
 export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journalRows }) => {
   const [selectedExerciseName, setSelectedExerciseName] = useState<string | null>(null);
+  const [chartMode, setChartMode] = useState<'avgWeight' | 'tonnage' | 'maxWeight'>('avgWeight');
 
   const pastSessions = useMemo(() => {
     const groups = new Map<
@@ -60,9 +61,17 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journa
   const personalRecords = useMemo(() => {
     const prMap = new Map<
       string,
-      { exercise: string; maxWeight: number; reps: number; date: string; levelValidated: boolean }
+      {
+        exercise: string;
+        avgWeightLatest: number;
+        maxWeight: number;
+        reps: number;
+        date: string;
+        levelValidated: boolean;
+      }
     >();
 
+    // Group by exercise + date to compute session averages as well
     for (const r of journalRows) {
       if (!r.weightKg || r.weightKg <= 0) continue;
       const existing = prMap.get(r.exercise);
@@ -73,6 +82,7 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journa
       ) {
         prMap.set(r.exercise, {
           exercise: r.exercise,
+          avgWeightLatest: r.weightKg,
           maxWeight: r.weightKg,
           reps: r.reps || 0,
           date: r.date,
@@ -89,7 +99,15 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journa
     const targetKey = normalizeExerciseKey(selectedExerciseName);
     const byDate = new Map<
       string,
-      { date: string; maxWeight: number; bestReps: number; sessionTonnage: number; setsText: string }
+      {
+        date: string;
+        weights: number[];
+        avgWeight: number;
+        maxWeight: number;
+        bestReps: number;
+        sessionTonnage: number;
+        setsText: string;
+      }
     >();
 
     for (const r of journalRows) {
@@ -99,6 +117,8 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journa
       if (!byDate.has(r.date)) {
         byDate.set(r.date, {
           date: r.date,
+          weights: [],
+          avgWeight: r.weightKg,
           maxWeight: r.weightKg,
           bestReps: r.reps || 0,
           sessionTonnage: 0,
@@ -106,6 +126,10 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journa
         });
       }
       const entry = byDate.get(r.date)!;
+      entry.weights.push(r.weightKg);
+      const sumW = entry.weights.reduce((acc, w) => acc + w, 0);
+      entry.avgWeight = Math.round((sumW / entry.weights.length) * 10) / 10;
+
       if (r.weightKg >= entry.maxWeight) {
         entry.maxWeight = r.weightKg;
         entry.bestReps = r.reps || 0;
@@ -243,22 +267,73 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journa
               <p className="gas-help-text">Pas encore de données de charge pour cet exercice.</p>
             ) : (
               <>
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: '0.35rem',
+                    marginBottom: '0.65rem',
+                  }}
+                >
+                  <button
+                    type="button"
+                    className={`superset-mini-tab ${chartMode === 'avgWeight' ? 'active' : ''}`}
+                    style={{ flex: 1 }}
+                    onClick={() => setChartMode('avgWeight')}
+                  >
+                    Charge Moy.
+                  </button>
+                  <button
+                    type="button"
+                    className={`superset-mini-tab ${chartMode === 'tonnage' ? 'active' : ''}`}
+                    style={{ flex: 1 }}
+                    onClick={() => setChartMode('tonnage')}
+                  >
+                    Tonnage
+                  </button>
+                  <button
+                    type="button"
+                    className={`superset-mini-tab ${chartMode === 'maxWeight' ? 'active' : ''}`}
+                    style={{ flex: 1 }}
+                    onClick={() => setChartMode('maxWeight')}
+                  >
+                    Charge Max
+                  </button>
+                </div>
+
                 <div className="chart-container">
-                  <div className="chart-caption">Évolution de la Charge Max (kg)</div>
+                  <div className="chart-caption">
+                    {chartMode === 'avgWeight'
+                      ? 'Évolution de la Charge Moyenne des séries (kg)'
+                      : chartMode === 'tonnage'
+                      ? 'Évolution du Tonnage Total sur cet exercice (kg)'
+                      : 'Évolution de la Charge Max (kg)'}
+                  </div>
                   <svg viewBox="0 0 320 140" className="progression-svg">
                     {(() => {
-                      const weights = exerciseProgression.map((p) => p.maxWeight);
-                      const minW = Math.min(...weights) * 0.9;
-                      const maxW = Math.max(...weights) * 1.05 || 10;
-                      const range = Math.max(5, maxW - minW);
+                      const values = exerciseProgression.map((p) =>
+                        chartMode === 'avgWeight'
+                          ? p.avgWeight
+                          : chartMode === 'tonnage'
+                          ? p.sessionTonnage
+                          : p.maxWeight
+                      );
+                      const minV = Math.min(...values) * 0.9;
+                      const maxV = Math.max(...values) * 1.05 || 10;
+                      const range = Math.max(2, maxV - minV);
 
                       const points = exerciseProgression.map((p, idx) => {
+                        const val =
+                          chartMode === 'avgWeight'
+                            ? p.avgWeight
+                            : chartMode === 'tonnage'
+                            ? p.sessionTonnage
+                            : p.maxWeight;
                         const x =
                           exerciseProgression.length === 1
                             ? 160
                             : 34 + (idx / (exerciseProgression.length - 1)) * 252;
-                        const y = 105 - ((p.maxWeight - minW) / range) * 75;
-                        return { x, y, ...p };
+                        const y = 105 - ((val - minV) / range) * 75;
+                        return { x, y, val, ...p };
                       });
 
                       const polylinePoints = points.map((pt) => `${pt.x},${pt.y}`).join(' ');
@@ -294,7 +369,7 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journa
                                 fontSize="10"
                                 fontWeight="700"
                               >
-                                {pt.maxWeight}kg
+                                {pt.val}kg
                               </text>
                               <text
                                 x={pt.x}
@@ -319,7 +394,9 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journa
                     .reverse()
                     .map((p) => (
                       <div key={p.date} className="history-ex-line">
-                        <span className="history-ex-title">{p.date}</span>
+                        <span className="history-ex-title">
+                          {p.date} <small style={{ color: '#10b981' }}>(moy. {p.avgWeight}kg)</small>
+                        </span>
                         <div className="history-ex-badges">
                           <span className="history-set-chip">{p.setsText}</span>
                           <span
