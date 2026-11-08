@@ -120,17 +120,19 @@ export const App: React.FC = () => {
     setActiveSession(updated);
     saveActiveSessionDraft(updated);
 
-    // Only auto-sync mid-workout if the session is updating existing pre-created rows ('write').
-    // For brand-new sessions ('append'), we wait until 'Terminer & Synchroniser la séance' so rows are appended once!
+    // Only auto-sync mid-workout for existing pre-created rows ('write' with sheetRowNumber), NEVER 'append'.
+    // New rows without sheetRowNumber are appended once when clicking 'Terminer & Synchroniser la séance'!
     if (triggerSync && updated.isPreCreatedInSheet) {
-      setIsSyncing(true);
-      const ops = buildBatchOperationsForSession(updated, getLastSheetRowNumber());
-      const res = await syncBatchOperations(ops);
-      setIsSyncing(false);
-      if (res.ok) {
-        setSyncStatusText('Synchronisé ✓');
-      } else {
-        setSyncStatusText('Sauvé localement');
+      const ops = buildBatchOperationsForSession(updated, getLastSheetRowNumber(), false);
+      if (ops.length > 0) {
+        setIsSyncing(true);
+        const res = await syncBatchOperations(ops);
+        setIsSyncing(false);
+        if (res.ok) {
+          setSyncStatusText('Synchronisé ✓');
+        } else {
+          setSyncStatusText('Sauvé localement');
+        }
       }
     } else {
       setSyncStatusText('Prêt (envoi fin de séance)');

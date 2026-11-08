@@ -484,11 +484,6 @@ export function buildWorkoutSession(
 
       const defaultTargetReps = g.rows[0]?.targetReps || matchedProg?.targetReps || '8-10';
       const minTargetRep = parseInt(defaultTargetReps.split('-')[0], 10) || 10;
-      const suggestedWeight = lastSummary
-        ? lastSummary.levelWasValidated
-          ? lastSummary.bestWeight + 2.5
-          : lastSummary.bestWeight
-        : 20;
 
       const sets: ActiveSetState[] = g.rows.map((r, sIdx) => {
         const histSet =
@@ -527,6 +522,33 @@ export function buildWorkoutSession(
         };
       });
 
+      // Pad up to template setsCount if partial session had fewer sets than program
+      const targetSetsCount = matchedProg?.setsCount || sets.length;
+      while (sets.length < targetSetsCount) {
+        const sIdx = sets.length;
+        const histSet =
+          lastSummary?.perSetHistory[sIdx] ||
+          lastSummary?.perSetHistory[lastSummary.perSetHistory.length - 1];
+        const baseWeight = histSet
+          ? histSet.weightKg
+          : sets[sets.length - 1]?.weightKg || lastSummary?.bestWeight || 20;
+        const suggestedSetWeight = lastSummary?.levelWasValidated ? baseWeight + 2.5 : baseWeight;
+        const suggestedSetReps = histSet
+          ? histSet.reps
+          : sets[sets.length - 1]?.reps || lastSummary?.repsAtBest || minTargetRep;
+
+        sets.push({
+          setNumber: sIdx + 1,
+          weightKg: isCardio ? 0 : suggestedSetWeight,
+          reps: isCardio ? 1 : suggestedSetReps,
+          targetReps: defaultTargetReps,
+          rir: matchedProg?.rir || '1-2',
+          feeling: 'Modéré',
+          completed: false,
+          notes: '',
+        });
+      }
+
       return {
         exerciseName: g.name,
         codePrefix: matchedProg?.codePrefix || String(idx + 1),
@@ -543,6 +565,51 @@ export function buildWorkoutSession(
         lastSessionSummary: lastSummary,
       };
     });
+
+    // Also append any missing exercises from the Program Template so the user can complete/modify all machines!
+    const existingKeys = new Set(exercises.map((e) => normalizeExerciseKey(e.exerciseName)));
+    for (const pe of template?.exercises || []) {
+      if (existingKeys.has(normalizeExerciseKey(pe.name))) continue;
+
+      const lastSummary = getLastExerciseHistory(pe.name, data.journalRows, dateStr);
+      const minTargetRep = parseInt(pe.targetReps.split('-')[0], 10) || 10;
+
+      const sets: ActiveSetState[] = Array.from({ length: pe.setsCount }, (_, idx) => {
+        const histSet =
+          lastSummary?.perSetHistory[idx] ||
+          lastSummary?.perSetHistory[lastSummary.perSetHistory.length - 1];
+        const baseWeight = histSet ? histSet.weightKg : lastSummary?.bestWeight || 20;
+        const suggestedSetWeight = lastSummary?.levelWasValidated ? baseWeight + 2.5 : baseWeight;
+        const suggestedSetReps = histSet ? histSet.reps : lastSummary?.repsAtBest || minTargetRep;
+
+        return {
+          setNumber: idx + 1,
+          weightKg: pe.isCardio ? 0 : suggestedSetWeight,
+          reps: pe.isCardio ? 1 : suggestedSetReps,
+          targetReps: pe.targetReps,
+          rir: pe.rir,
+          feeling: 'Modéré',
+          completed: false,
+          notes: '',
+        };
+      });
+
+      exercises.push({
+        exerciseName: pe.name,
+        codePrefix: pe.codePrefix,
+        supersetGroup: pe.supersetGroup,
+        targetReps: pe.targetReps,
+        rir: pe.rir,
+        restSeconds: pe.restSeconds,
+        restLabel: pe.restLabel,
+        instructions: pe.instructions,
+        isCardio: pe.isCardio,
+        levelValidated: false,
+        exerciseNotes: lastSummary?.lastNotes || '',
+        sets,
+        lastSessionSummary: lastSummary,
+      });
+    }
 
     return {
       date: dateStr,
@@ -638,7 +705,8 @@ export function buildDeleteSessionOperations(rows: JournalRow[]): BatchOperation
 
 export function buildBatchOperationsForSession(
   session: ActiveWorkoutSession,
-  lastSheetRowNumber = 125
+  lastSheetRowNumber = 125,
+  includeAppends = true
 ): BatchOperation[] {
   const ops: BatchOperation[] = [];
   const appendRows: (string | number)[][] = [];
@@ -708,7 +776,7 @@ export function buildBatchOperationsForSession(
           range: `'Journal d'entraînement'!B${s.sheetRowNumber}:M${s.sheetRowNumber}`,
           data: [rowValues],
         });
-      } else {
+      } else if (includeAppends) {
         const currentRowNum = nextAppendRowNum++;
         const formulaOrEmpty = ex.isCardio ? '' : `=F${currentRowNum}*G${currentRowNum}`;
         const rowValues: (string | number)[] = [
@@ -730,7 +798,7 @@ export function buildBatchOperationsForSession(
     });
   }
 
-  if (appendRows.length > 0) {
+  if (includeAppends && appendRows.length > 0) {
     ops.push({
       op: 'append',
       range: `'Journal d'entraînement'!B4:M4`,
