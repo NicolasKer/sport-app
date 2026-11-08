@@ -139,22 +139,16 @@ export const App: React.FC = () => {
 
   const handleFinishWorkout = async () => {
     if (!activeSession) return;
-    setIsSyncing(true);
     const anyExplicitlyCompleted = activeSession.exercises.some((ex) =>
       ex.sets.some((s) => s.completed)
     );
-    const sessionToSync: ActiveWorkoutSession = anyExplicitlyCompleted
-      ? activeSession
-      : {
-          ...activeSession,
-          exercises: activeSession.exercises.map((ex) => ({
-            ...ex,
-            sets: ex.sets.map((s) => ({
-              ...s,
-              completed: true,
-            })),
-          })),
-        };
+    if (!anyExplicitlyCompleted) {
+      showToast('Valide au moins une série (bouton ✓ Valider) avant de terminer la séance !');
+      return;
+    }
+
+    setIsSyncing(true);
+    const sessionToSync: ActiveWorkoutSession = activeSession;
     const ops = buildBatchOperationsForSession(sessionToSync, getLastSheetRowNumber());
     const res = await syncBatchOperations(ops);
     setIsSyncing(false);

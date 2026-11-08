@@ -848,7 +848,12 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
         <button
           type="button"
           className="finish-workout-btn"
-          style={{ width: '100%', marginTop: '0.25rem' }}
+          style={{
+            width: '100%',
+            marginTop: '0.25rem',
+            opacity: stats.completedSets === 0 ? 0.5 : 1,
+          }}
+          disabled={stats.completedSets === 0}
           onClick={() => {
             try {
               confetti({ particleCount: 120, spread: 90, origin: { y: 0.6 } });
@@ -858,7 +863,10 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
             onFinishWorkout();
           }}
         >
-          <Dumbbell size={18} /> Terminer &amp; Synchroniser la séance ({stats.completedSets} séries)
+          <Dumbbell size={18} />{' '}
+          {stats.completedSets === 0
+            ? 'Valide au moins 1 série pour enregistrer'
+            : `Terminer & Synchroniser la séance (${stats.completedSets} séries)`}
         </button>
       </main>
 
