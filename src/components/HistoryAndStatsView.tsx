@@ -17,6 +17,9 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
   const [selectedExerciseName, setSelectedExerciseName] = useState<string | null>(null);
   const [chartMode, setChartMode] = useState<'avgWeight' | 'tonnage' | 'maxWeight'>('avgWeight');
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
+  const [selectedSessionType, setSelectedSessionType] = useState<
+    'Full Body' | 'Lower + Cardio' | 'Upper'
+  >('Full Body');
 
   const pastSessions = useMemo(() => {
     const groups = new Map<
@@ -153,8 +156,115 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
     return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [journalRows, selectedExerciseName]);
 
+  const sessionTypeProgression = useMemo(() => {
+    return pastSessions
+      .filter((s) => s.sessionName === selectedSessionType && s.totalTonnage > 0)
+      .slice()
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [pastSessions, selectedSessionType]);
+
   return (
     <div className="history-view">
+      <section className="pr-section" style={{ marginBottom: '1.25rem' }}>
+        <div className="section-heading">
+          <LineChart size={18} />
+          <h2>Évolution du Tonnage par Séance</h2>
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.65rem' }}>
+          {(['Full Body', 'Lower + Cardio', 'Upper'] as const).map((type) => (
+            <button
+              key={type}
+              type="button"
+              className={`superset-mini-tab ${selectedSessionType === type ? 'active' : ''}`}
+              style={{ flex: 1 }}
+              onClick={() => setSelectedSessionType(type)}
+            >
+              {type}
+            </button>
+          ))}
+        </div>
+
+        <div className="chart-container" style={{ marginBottom: 0 }}>
+          {sessionTypeProgression.length === 0 ? (
+            <div className="chart-caption">Aucune séance enregistrée pour {selectedSessionType}.</div>
+          ) : (
+            <>
+              <div className="chart-caption">
+                Tonnage total soulevé sur <strong>{selectedSessionType}</strong> (
+                {sessionTypeProgression.length} séance{sessionTypeProgression.length > 1 ? 's' : ''})
+              </div>
+              <svg viewBox="0 0 320 135" className="progression-svg">
+                {(() => {
+                  const values = sessionTypeProgression.map((s) => s.totalTonnage);
+                  const minV = Math.min(...values) * 0.9;
+                  const maxV = Math.max(...values) * 1.05 || 100;
+                  const range = Math.max(50, maxV - minV);
+
+                  const points = sessionTypeProgression.map((s, idx) => {
+                    const x =
+                      sessionTypeProgression.length === 1
+                        ? 160
+                        : 38 + (idx / (sessionTypeProgression.length - 1)) * 244;
+                    const y = 100 - ((s.totalTonnage - minV) / range) * 70;
+                    return { x, y, ...s };
+                  });
+
+                  const polylinePoints = points.map((pt) => `${pt.x},${pt.y}`).join(' ');
+
+                  return (
+                    <>
+                      <line x1="24" y1="105" x2="296" y2="105" stroke="rgba(255,255,255,0.1)" />
+                      {points.length > 1 && (
+                        <polyline
+                          fill="none"
+                          stroke="#06b6d4"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          points={polylinePoints}
+                        />
+                      )}
+                      {points.map((pt) => (
+                        <g key={pt.date}>
+                          <circle
+                            cx={pt.x}
+                            cy={pt.y}
+                            r="5"
+                            fill="#06b6d4"
+                            stroke="#090d16"
+                            strokeWidth="2"
+                          />
+                          <text
+                            x={pt.x}
+                            y={pt.y - 10}
+                            textAnchor="middle"
+                            fill="#f8fafc"
+                            fontSize="9.5"
+                            fontWeight="700"
+                          >
+                            {Math.round(pt.totalTonnage)}kg
+                          </text>
+                          <text
+                            x={pt.x}
+                            y={122}
+                            textAnchor="middle"
+                            fill="#94a3b8"
+                            fontSize="9"
+                          >
+                            {pt.date.slice(5)}
+                          </text>
+                        </g>
+                      ))}
+                    </>
+                  );
+                })()}
+              </svg>
+            </>
+          )}
+        </div>
+      </section>
+
       <section className="pr-section">
         <div className="section-heading">
           <Award size={18} />

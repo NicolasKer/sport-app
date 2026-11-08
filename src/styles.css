@@ -1817,3 +1817,62 @@ button:focus-visible {
   font-size: 0.75rem;
   cursor: pointer;
 }
+
+/* ==================== SWAP EXERCISE & DUMBBELL/PLATE CALCULATOR ==================== */
+.swap-picker-box {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 12px;
+  background: var(--bg-surface);
+  border: 1px solid rgba(6, 182, 212, 0.35);
+}
+
+.swap-picker-title {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  margin-bottom: 0.5rem;
+}
+
+.swap-picker-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+}
+
+.swap-chip-btn {
+  padding: 0.35rem 0.65rem;
+  min-height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.swap-chip-btn.active {
+  background: rgba(6, 182, 212, 0.2);
+  border-color: var(--accent-cyan);
+  color: #67e8f9;
+}
+
+.swap-custom-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.dumbbell-hint-pill {
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 6px;
+  padding: 0.18rem 0.45rem;
+  text-align: center;
+}
+

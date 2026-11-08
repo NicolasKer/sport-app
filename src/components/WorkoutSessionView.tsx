@@ -40,6 +40,52 @@ const FEELING_OPTIONS: { value: Feeling; label: string; emoji: string; colorClas
   { value: 'Difficile', label: 'Difficile', emoji: '🔴', colorClass: 'feel-hard' },
 ];
 
+const EXERCISE_ALTERNATIVES: Record<string, string[]> = {
+  pec: ['Pec Deck', 'Écartés Poulie Vis-à-Vis', 'Développé Couché Haltères', 'Développé Incliné Machine'],
+  abdos: ['Machine à abdos', 'Crunch Poulie Haute', 'Gainage / Relevé de jambes'],
+  mollets: ['Mollets Debout / Presse', 'Mollets Assis Machine'],
+  triceps: ['Extensions Triceps Poulie Corde', 'Extensions Triceps Poulie (ou Barre au front)', 'Barre au front Haltères / EZ'],
+  row: ['Chest-Supported Row (Machine ou banc avec appui poitrine)', 'Tirage Horizontal Poulie Basse', 'Rowing Haltères Unilatéral'],
+  legs: ['Presse à Cuisses', 'Hack Squat', 'Squat Guidé (Smith Machine)'],
+  sdt: ['Soulevé de Terre Roumain', 'Soulevé de Terre Roumain Barre', 'Hip Thrust Machine'],
+};
+
+function getAlternativesForExercise(name: string): string[] {
+  const n = name.toLowerCase();
+  if (n.includes('pec deck') || n.includes('écartés') || n.includes('ecartes')) return EXERCISE_ALTERNATIVES.pec;
+  if (n.includes('abdos') || n.includes('crunch')) return EXERCISE_ALTERNATIVES.abdos;
+  if (n.includes('mollets')) return EXERCISE_ALTERNATIVES.mollets;
+  if (n.includes('triceps') || n.includes('barre au front')) return EXERCISE_ALTERNATIVES.triceps;
+  if (n.includes('row') || n.includes('tirage horizontal')) return EXERCISE_ALTERNATIVES.row;
+  if (n.includes('presse') || n.includes('squat')) return EXERCISE_ALTERNATIVES.legs;
+  if (n.includes('roumain')) return EXERCISE_ALTERNATIVES.sdt;
+  return [];
+}
+
+function getWeightBreakdownHint(exerciseName: string, weightKg: number): string | null {
+  if (!weightKg || weightKg <= 0) return null;
+  const n = exerciseName.toLowerCase();
+  const isDumbbellDual =
+    n.includes('haltères') ||
+    n.includes('halteres') ||
+    n.includes('roumain') ||
+    n.includes('fentes bulgares') ||
+    n.includes('marteau') ||
+    n.includes('élévations latérales');
+
+  if (isDumbbellDual) {
+    const perHand = Math.round((weightKg / 2) * 100) / 100;
+    return `🏋️ 2 × ${String(perHand).replace('.', ',')} kg / main`;
+  }
+
+  if (n.includes('presse à cuisses')) {
+    const perSide = Math.round((weightKg / 2) * 100) / 100;
+    return `⚙️ 2 × ${String(perSide).replace('.', ',')} kg / côté`;
+  }
+
+  return null;
+}
+
 export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
   session,
   syncStatusText,
@@ -52,6 +98,8 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
   const [timerEndMs, setTimerEndMs] = useState<number | null>(null);
   const [timerTotalSec, setTimerTotalSec] = useState<number>(90);
   const [timerHint, setTimerHint] = useState<string>('');
+  const [showSwapPicker, setShowSwapPicker] = useState<boolean>(false);
+  const [customSwapName, setCustomSwapName] = useState<string>('');
 
   // Cardio helper fields adapted to session type (Full Body = Course 12min/10,5kmh, Lower = Marche inclinée 25min/5,3kmh/10%)
   const isFullBodySession = session.sessionName.toLowerCase().includes('full');
@@ -262,6 +310,17 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
     }
   };
 
+  const handleSwapExerciseName = (newName: string) => {
+    const clean = newName.trim();
+    if (!clean) return;
+    const nextExercises = session.exercises.map((ex, i) =>
+      i === activeExIdx ? { ...ex, exerciseName: clean } : ex
+    );
+    onUpdateSession({ ...session, exercises: nextExercises }, false);
+    setShowSwapPicker(false);
+    setCustomSwapName('');
+  };
+
   const handleTogglePalier = () => {
     const willValidate = !currentEx.levelValidated;
     if (willValidate) {
@@ -439,20 +498,68 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
               </span>
               <h2>{currentEx.exerciseName}</h2>
             </div>
-            <button
-              type="button"
-              className="manual-timer-trigger"
-              onClick={() =>
-                startRestTimer(
-                  currentEx.restSeconds || 90,
-                  `Repos manuel (${currentEx.restLabel})`
-                )
-              }
-            >
-              <Timer size={16} />
-              <span>{currentEx.restLabel}</span>
-            </button>
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="manual-timer-trigger"
+                onClick={() => setShowSwapPicker((prev) => !prev)}
+                title="Changer d'exercice si la machine est prise"
+              >
+                <Repeat size={15} />
+                <span>Variante</span>
+              </button>
+              <button
+                type="button"
+                className="manual-timer-trigger"
+                onClick={() =>
+                  startRestTimer(
+                    currentEx.restSeconds || 90,
+                    `Repos manuel (${currentEx.restLabel})`
+                  )
+                }
+              >
+                <Timer size={16} />
+                <span>{currentEx.restLabel}</span>
+              </button>
+            </div>
           </div>
+
+          {showSwapPicker && (
+            <div className="swap-picker-box">
+              <div className="swap-picker-title">
+                Machine occupée ? Remplacer par une variante :
+              </div>
+              <div className="swap-picker-chips">
+                {getAlternativesForExercise(currentEx.exerciseName)
+                  .filter((alt) => alt !== currentEx.exerciseName)
+                  .map((alt) => (
+                    <button
+                      key={alt}
+                      type="button"
+                      className="swap-chip-btn"
+                      onClick={() => handleSwapExerciseName(alt)}
+                    >
+                      🔄 {alt}
+                    </button>
+                  ))}
+              </div>
+              <div className="swap-custom-row">
+                <input
+                  type="text"
+                  placeholder="Ou tape un autre exercice..."
+                  value={customSwapName}
+                  onChange={(e) => setCustomSwapName(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="primary-btn-sm"
+                  onClick={() => handleSwapExerciseName(customSwapName)}
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="exercise-targets-row">
             <div className="target-chip">
@@ -626,7 +733,14 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
                         Cible : {s.targetReps} reps · RIR {s.rir}
                       </span>
                     </div>
-                    <span className="set-tonnage-pill">{setTonnage} kg</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      {getWeightBreakdownHint(currentEx.exerciseName, s.weightKg) && (
+                        <span className="dumbbell-hint-pill">
+                          {getWeightBreakdownHint(currentEx.exerciseName, s.weightKg)}
+                        </span>
+                      )}
+                      <span className="set-tonnage-pill">{setTonnage} kg</span>
+                    </div>
                   </div>
 
                   <div className="set-controls-grid">
