@@ -111,7 +111,9 @@ export const App: React.FC = () => {
     setActiveSession(updated);
     saveActiveSessionDraft(updated);
 
-    if (triggerSync) {
+    // Only auto-sync mid-workout if the session is updating existing pre-created rows ('write').
+    // For brand-new sessions ('append'), we wait until 'Terminer & Synchroniser la séance' so rows are appended once!
+    if (triggerSync && updated.isPreCreatedInSheet) {
       setIsSyncing(true);
       const ops = buildBatchOperationsForSession(updated);
       const res = await syncBatchOperations(ops);
@@ -121,25 +123,30 @@ export const App: React.FC = () => {
       } else {
         setSyncStatusText('Sauvé localement');
       }
+    } else {
+      setSyncStatusText('Prêt (envoi fin de séance)');
     }
   };
 
   const handleFinishWorkout = async () => {
     if (!activeSession) return;
     setIsSyncing(true);
-    // If the user finishes the workout, ensure all sets they went through are marked completed
-    // if none or only some were explicitly ticked with the per-set button
-    const completedSession: ActiveWorkoutSession = {
-      ...activeSession,
-      exercises: activeSession.exercises.map((ex) => ({
-        ...ex,
-        sets: ex.sets.map((s) => ({
-          ...s,
-          completed: true,
-        })),
-      })),
-    };
-    const ops = buildBatchOperationsForSession(completedSession);
+    const anyExplicitlyCompleted = activeSession.exercises.some((ex) =>
+      ex.sets.some((s) => s.completed)
+    );
+    const sessionToSync: ActiveWorkoutSession = anyExplicitlyCompleted
+      ? activeSession
+      : {
+          ...activeSession,
+          exercises: activeSession.exercises.map((ex) => ({
+            ...ex,
+            sets: ex.sets.map((s) => ({
+              ...s,
+              completed: true,
+            })),
+          })),
+        };
+    const ops = buildBatchOperationsForSession(sessionToSync);
     const res = await syncBatchOperations(ops);
     setIsSyncing(false);
 

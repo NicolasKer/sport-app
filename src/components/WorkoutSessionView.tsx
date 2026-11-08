@@ -747,7 +747,7 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
             <ChevronLeft size={18} /> Précédent
           </button>
 
-          {activeExIdx < session.exercises.length - 1 ? (
+          {activeExIdx < session.exercises.length - 1 && (
             <button
               type="button"
               className="primary-nav-btn"
@@ -755,23 +755,24 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
             >
               Exercice suivant <ChevronRight size={18} />
             </button>
-          ) : (
-            <button
-              type="button"
-              className="finish-workout-btn"
-              onClick={() => {
-                try {
-                  confetti({ particleCount: 120, spread: 90, origin: { y: 0.6 } });
-                } catch {
-                  // Ignore
-                }
-                onFinishWorkout();
-              }}
-            >
-              <Dumbbell size={18} /> Terminer & Synchroniser la séance
-            </button>
           )}
         </div>
+
+        <button
+          type="button"
+          className="finish-workout-btn"
+          style={{ width: '100%', marginTop: '0.25rem' }}
+          onClick={() => {
+            try {
+              confetti({ particleCount: 120, spread: 90, origin: { y: 0.6 } });
+            } catch {
+              // Ignore
+            }
+            onFinishWorkout();
+          }}
+        >
+          <Dumbbell size={18} /> Terminer &amp; Synchroniser la séance ({stats.completedSets} séries)
+        </button>
       </main>
 
       {/* Floating Auto Rest Timer */}
