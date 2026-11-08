@@ -298,14 +298,15 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
               onClick={() => setSelectedExerciseName(pr.exercise)}
             >
               <div className="pr-ex-name">{pr.exercise.split('(')[0].trim()}</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.35rem' }}>
+              <div className="pr-main-row">
                 <div className="pr-weight">
                   {pr.maxWeight} <span>kg</span>
                 </div>
-                <span className="e1rm-badge">⚡ 1RM ~{pr.e1rm}kg</span>
+                <div className="pr-reps-tag">× {pr.reps}</div>
               </div>
-              <div className="pr-meta">
-                × {pr.reps} reps · {pr.date.slice(5)} 📈
+              <div className="pr-footer-row">
+                <span className="e1rm-pill">1RM ≈ {Math.round(pr.e1rm)} kg</span>
+                <span className="pr-date-tag">{pr.date.slice(5)}</span>
               </div>
             </button>
           ))}
@@ -480,7 +481,7 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
                     style={{ flex: 1 }}
                     onClick={() => setChartMode('e1rm')}
                   >
-                    ⚡ 1RM Est.
+                    1RM Est.
                   </button>
                   <button
                     type="button"
