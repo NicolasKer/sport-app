@@ -433,6 +433,12 @@ export function getLastExerciseHistory(
     .map((r) => (r.weightKg !== null ? `${r.weightKg}kg×${r.reps ?? 0}` : r.notes || 'Fait'))
     .join(' · ');
 
+  const perSetHistory = latestRows.map((r) => ({
+    weightKg: r.weightKg ?? bestWeight,
+    reps: r.reps ?? repsAtBest,
+    feeling: r.feeling || ('Modéré' as Feeling),
+  }));
+
   return {
     date: latestDate,
     bestWeight,
@@ -440,6 +446,7 @@ export function getLastExerciseHistory(
     levelWasValidated,
     setsText,
     lastNotes,
+    perSetHistory,
   };
 }
 
@@ -483,20 +490,42 @@ export function buildWorkoutSession(
           : lastSummary.bestWeight
         : 20;
 
-      const sets: ActiveSetState[] = g.rows.map((r) => ({
-        setNumber: r.setNumber,
-        sheetRowNumber: r.sheetRowNumber,
-        weightKg: r.weightKg !== null && r.weightKg > 0 ? r.weightKg : isCardio ? 0 : suggestedWeight,
-        reps: r.reps !== null && r.reps > 0 ? r.reps : isCardio ? 1 : lastSummary?.repsAtBest || minTargetRep,
-        targetReps: r.targetReps || defaultTargetReps,
-        rir: r.rir || matchedProg?.rir || '1-2',
-        feeling: r.feeling || 'Modéré',
-        completed:
+      const sets: ActiveSetState[] = g.rows.map((r, sIdx) => {
+        const histSet =
+          lastSummary?.perSetHistory[sIdx] ||
+          lastSummary?.perSetHistory[lastSummary.perSetHistory.length - 1];
+        const baseWeight = histSet ? histSet.weightKg : lastSummary?.bestWeight || 20;
+        const suggestedSetWeight = lastSummary?.levelWasValidated ? baseWeight + 2.5 : baseWeight;
+        const suggestedSetReps = histSet ? histSet.reps : lastSummary?.repsAtBest || minTargetRep;
+        const isAlreadyDone =
           (r.weightKg !== null && r.weightKg > 0) ||
           (r.reps !== null && r.reps > 0) ||
-          r.feeling !== '',
-        notes: r.notes || '',
-      }));
+          r.feeling !== '' ||
+          r.notes !== '';
+
+        return {
+          setNumber: r.setNumber,
+          sheetRowNumber: r.sheetRowNumber,
+          wasInitiallyCompleted: isAlreadyDone,
+          weightKg:
+            r.weightKg !== null && r.weightKg > 0
+              ? r.weightKg
+              : isCardio
+              ? 0
+              : suggestedSetWeight,
+          reps:
+            r.reps !== null && r.reps > 0
+              ? r.reps
+              : isCardio
+              ? 1
+              : suggestedSetReps,
+          targetReps: r.targetReps || defaultTargetReps,
+          rir: r.rir || matchedProg?.rir || '1-2',
+          feeling: r.feeling || 'Modéré',
+          completed: isAlreadyDone,
+          notes: r.notes || '',
+        };
+      });
 
       return {
         exerciseName: g.name,
@@ -535,16 +564,25 @@ export function buildWorkoutSession(
         : lastSummary.bestWeight
       : 20;
 
-    const sets: ActiveSetState[] = Array.from({ length: pe.setsCount }, (_, idx) => ({
-      setNumber: idx + 1,
-      weightKg: pe.isCardio ? 0 : suggestedWeight,
-      reps: pe.isCardio ? 1 : lastSummary?.repsAtBest || minTargetRep,
-      targetReps: pe.targetReps,
-      rir: pe.rir,
-      feeling: 'Modéré',
-      completed: false,
-      notes: '',
-    }));
+    const sets: ActiveSetState[] = Array.from({ length: pe.setsCount }, (_, idx) => {
+      const histSet =
+        lastSummary?.perSetHistory[idx] ||
+        lastSummary?.perSetHistory[lastSummary.perSetHistory.length - 1];
+      const baseWeight = histSet ? histSet.weightKg : lastSummary?.bestWeight || 20;
+      const suggestedSetWeight = lastSummary?.levelWasValidated ? baseWeight + 2.5 : baseWeight;
+      const suggestedSetReps = histSet ? histSet.reps : lastSummary?.repsAtBest || minTargetRep;
+
+      return {
+        setNumber: idx + 1,
+        weightKg: pe.isCardio ? 0 : suggestedSetWeight,
+        reps: pe.isCardio ? 1 : suggestedSetReps,
+        targetReps: pe.targetReps,
+        rir: pe.rir,
+        feeling: 'Modéré',
+        completed: false,
+        notes: '',
+      };
+    });
 
     return {
       exerciseName: pe.name,
@@ -608,6 +646,32 @@ export function buildBatchOperationsForSession(
 
   for (const ex of session.exercises) {
     ex.sets.forEach((s, idx) => {
+      // If a set was previously completed in the Sheet (editing history) and user unchecked it, clear its values
+      if (!s.completed && s.sheetRowNumber && s.wasInitiallyCompleted) {
+        const formulaOrZero = ex.isCardio ? '' : `=F${s.sheetRowNumber}*G${s.sheetRowNumber}`;
+        ops.push({
+          op: 'write',
+          range: `'Journal d'entraînement'!B${s.sheetRowNumber}:M${s.sheetRowNumber}`,
+          data: [
+            [
+              session.date,
+              session.sessionName,
+              ex.exerciseName,
+              s.setNumber,
+              '',
+              '',
+              safeSheetString(s.targetReps || ex.targetReps),
+              safeSheetString(s.rir || ex.rir),
+              '',
+              formulaOrZero,
+              '',
+              '',
+            ],
+          ],
+        });
+        return;
+      }
+
       // NEVER emit a write operation for an unvalidated set!
       // Otherwise opening a session and syncing one set would overwrite other rows with blanks.
       if (!s.completed) {

@@ -43,6 +43,7 @@ export interface ProgramTemplate {
 export interface ActiveSetState {
   setNumber: number;
   sheetRowNumber?: number;
+  wasInitiallyCompleted?: boolean;
   weightKg: number;
   reps: number;
   targetReps: string;
@@ -72,6 +73,7 @@ export interface ActiveExerciseState {
     levelWasValidated: boolean;
     setsText: string;
     lastNotes: string;
+    perSetHistory: { weightKg: number; reps: number; feeling: Feeling }[];
   };
 }
 

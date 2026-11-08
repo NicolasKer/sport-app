@@ -53,10 +53,11 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
   const [timerTotalSec, setTimerTotalSec] = useState<number>(90);
   const [timerHint, setTimerHint] = useState<string>('');
 
-  // Cardio helper fields
-  const [cardioDuration, setCardioDuration] = useState<string>('25');
-  const [cardioSpeed, setCardioSpeed] = useState<string>('5,3');
-  const [cardioIncline, setCardioIncline] = useState<string>('10');
+  // Cardio helper fields adapted to session type (Full Body = Course 12min/10,5kmh, Lower = Marche inclinée 25min/5,3kmh/10%)
+  const isFullBodySession = session.sessionName.toLowerCase().includes('full');
+  const [cardioDuration, setCardioDuration] = useState<string>(isFullBodySession ? '12' : '25');
+  const [cardioSpeed, setCardioSpeed] = useState<string>(isFullBodySession ? '10,5' : '5,3');
+  const [cardioIncline, setCardioIncline] = useState<string>(isFullBodySession ? '0' : '10');
 
   const currentEx: ActiveExerciseState = session.exercises[activeExIdx] || session.exercises[0];
 
