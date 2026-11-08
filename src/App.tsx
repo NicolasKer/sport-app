@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import {
   buildBatchOperationsForSession,
+  buildDeleteSessionOperations,
   buildWorkoutSession,
   clearOfflineQueue,
   fetchSheetData,
@@ -240,6 +241,32 @@ export const App: React.FC = () => {
     });
 
     await loadData();
+  };
+
+  const handleEditHistorySession = (date: string, sessionName: string, rows: JournalRow[]) => {
+    if (!sheetData) return;
+    const session = buildWorkoutSession(sheetData, sessionName, date, rows);
+    setActiveSession(session);
+    saveActiveSessionDraft(session);
+  };
+
+  const handleDeleteHistorySession = async (
+    date: string,
+    sessionName: string,
+    rows: JournalRow[]
+  ) => {
+    const ops = buildDeleteSessionOperations(rows);
+    if (ops.length === 0) return;
+    setIsSyncing(true);
+    const res = await syncBatchOperations(ops);
+    setIsSyncing(false);
+    if (res.ok) {
+      showToast(`Séance ${sessionName} (${date}) supprimée du Sheet !`);
+      await loadData();
+    } else {
+      showToast('Suppression mise en file d’attente');
+      await loadData();
+    }
   };
 
   const handleFlushOfflineQueue = async () => {
@@ -582,7 +609,13 @@ export const App: React.FC = () => {
             </section>
           </div>
         ) : (
-          sheetData && <HistoryAndStatsView journalRows={sheetData.journalRows} />
+          sheetData && (
+            <HistoryAndStatsView
+              journalRows={sheetData.journalRows}
+              onEditSession={handleEditHistorySession}
+              onDeleteSession={handleDeleteHistorySession}
+            />
+          )
         )}
       </main>
 

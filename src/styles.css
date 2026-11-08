@@ -1755,3 +1755,65 @@ button:focus-visible {
 .add-bonus-set-btn:active {
   background: rgba(255, 255, 255, 0.08);
 }
+
+.history-action-btn {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.history-action-btn:hover {
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.history-action-btn.danger:hover {
+  color: #fda4af;
+  border-color: rgba(244, 63, 94, 0.45);
+}
+
+.delete-confirm-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  margin-bottom: 0.65rem;
+  border-radius: 10px;
+  background: rgba(244, 63, 94, 0.14);
+  border: 1px solid rgba(244, 63, 94, 0.45);
+  color: #fecdd3;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.confirm-del-btn {
+  min-height: 32px;
+  padding: 0.25rem 0.65rem;
+  border-radius: 7px;
+  border: none;
+  background: #f43f5e;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cancel-del-btn {
+  min-height: 32px;
+  padding: 0.25rem 0.6rem;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  cursor: pointer;
+}

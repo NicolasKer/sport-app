@@ -585,6 +585,19 @@ function safeSheetString(val: string): string {
   return val;
 }
 
+export function buildDeleteSessionOperations(rows: JournalRow[]): BatchOperation[] {
+  const ops: BatchOperation[] = [];
+  for (const r of rows) {
+    if (!r.sheetRowNumber) continue;
+    ops.push({
+      op: 'write',
+      range: `'Journal d'entraînement'!B${r.sheetRowNumber}:M${r.sheetRowNumber}`,
+      data: [['', '', '', '', '', '', '', '', '', '', '', '']],
+    });
+  }
+  return ops;
+}
+
 export function buildBatchOperationsForSession(
   session: ActiveWorkoutSession,
   lastSheetRowNumber = 125

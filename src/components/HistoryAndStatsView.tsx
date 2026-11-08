@@ -1,15 +1,22 @@
 import React, { useMemo, useState } from 'react';
-import { Award, Calendar, Flame, LineChart, TrendingUp, Trophy, X } from 'lucide-react';
+import { Award, Calendar, Edit3, Flame, LineChart, Trash2, TrendingUp, Trophy, X } from 'lucide-react';
 import { JournalRow } from '../types/workout';
 import { normalizeExerciseKey } from '../services/sheetsApi';
 
 interface HistoryAndStatsViewProps {
   journalRows: JournalRow[];
+  onEditSession: (date: string, sessionName: string, rows: JournalRow[]) => void;
+  onDeleteSession: (date: string, sessionName: string, rows: JournalRow[]) => void;
 }
 
-export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journalRows }) => {
+export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
+  journalRows,
+  onEditSession,
+  onDeleteSession,
+}) => {
   const [selectedExerciseName, setSelectedExerciseName] = useState<string | null>(null);
   const [chartMode, setChartMode] = useState<'avgWeight' | 'tonnage' | 'maxWeight'>('avgWeight');
+  const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
 
   const pastSessions = useMemo(() => {
     const groups = new Map<
@@ -21,6 +28,7 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journa
         totalSets: number;
         validatedPaliers: string[];
         exercises: Map<string, JournalRow[]>;
+        allRows: JournalRow[];
       }
     >();
 
@@ -41,9 +49,11 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journa
           totalSets: 0,
           validatedPaliers: [],
           exercises: new Map(),
+          allRows: [],
         });
       }
       const g = groups.get(key)!;
+      g.allRows.push(r);
       g.totalSets += 1;
       g.totalTonnage += (r.weightKg || 0) * (r.reps || 0);
       if (r.levelValidated && !g.validatedPaliers.includes(r.exercise)) {
@@ -177,20 +187,69 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journa
         </div>
 
         <div className="session-history-list">
-          {pastSessions.map((sess) => (
-            <article key={`${sess.date}_${sess.sessionName}`} className="history-session-card">
-              <div className="history-session-header">
-                <div>
-                  <span className="history-date">
-                    <Calendar size={13} /> {sess.date}
-                  </span>
-                  <h3>{sess.sessionName}</h3>
+          {pastSessions.map((sess) => {
+            const sessKey = `${sess.date}_${sess.sessionName}`;
+            const isConfirmingDelete = confirmDeleteKey === sessKey;
+
+            return (
+              <article key={sessKey} className="history-session-card">
+                <div className="history-session-header">
+                  <div>
+                    <span className="history-date">
+                      <Calendar size={13} /> {sess.date}
+                    </span>
+                    <h3>{sess.sessionName}</h3>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <div className="history-tonnage-badge">
+                      <Flame size={14} />
+                      <span>{sess.totalTonnage.toLocaleString('fr-FR')} kg</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="history-action-btn"
+                      title="Modifier cette séance"
+                      onClick={() => onEditSession(sess.date, sess.sessionName, sess.allRows)}
+                    >
+                      <Edit3 size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="history-action-btn danger"
+                      title="Supprimer cette séance"
+                      onClick={() =>
+                        setConfirmDeleteKey(isConfirmingDelete ? null : sessKey)
+                      }
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
-                <div className="history-tonnage-badge">
-                  <Flame size={14} />
-                  <span>{sess.totalTonnage.toLocaleString('fr-FR')} kg</span>
-                </div>
-              </div>
+
+                {isConfirmingDelete && (
+                  <div className="delete-confirm-strip">
+                    <span>Supprimer cette séance du Sheet ?</span>
+                    <div style={{ display: 'flex', gap: '0.4rem' }}>
+                      <button
+                        type="button"
+                        className="confirm-del-btn"
+                        onClick={() => {
+                          setConfirmDeleteKey(null);
+                          onDeleteSession(sess.date, sess.sessionName, sess.allRows);
+                        }}
+                      >
+                        Oui, supprimer
+                      </button>
+                      <button
+                        type="button"
+                        className="cancel-del-btn"
+                        onClick={() => setConfirmDeleteKey(null)}
+                      >
+                        Annuler
+                      </button>
+                    </div>
+                  </div>
+                )}
 
               {sess.validatedPaliers.length > 0 && (
                 <div className="history-paliers-strip">
@@ -232,7 +291,8 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({ journa
                 })}
               </div>
             </article>
-          ))}
+            );
+          })}
         </div>
       </section>
 
