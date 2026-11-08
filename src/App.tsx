@@ -278,6 +278,42 @@ export const App: React.FC = () => {
   const offlineCount = getOfflineQueue().length;
   const savedDraft = loadActiveSessionDraft();
 
+  // Compute rotation recommendation and recent 7-day sessions
+  const rotationInfo = React.useMemo(() => {
+    if (!sheetData) return { nextRecommendedId: 'Upper', lastSession: null, recentSessionsCount: 0 };
+    const filledRows = sheetData.journalRows.filter(
+      (r) => (r.weightKg && r.weightKg > 0) || (r.reps && r.reps > 0) || r.notes !== ''
+    );
+    const uniqueSessions: { date: string; sessionName: string }[] = [];
+    const seen = new Set<string>();
+    for (const r of filledRows) {
+      const k = `${r.date}__${r.sessionName}`;
+      if (!seen.has(k)) {
+        seen.add(k);
+        uniqueSessions.push({ date: r.date, sessionName: r.sessionName });
+      }
+    }
+    uniqueSessions.sort((a, b) => a.date.localeCompare(b.date));
+    const lastSession = uniqueSessions.length > 0 ? uniqueSessions[uniqueSessions.length - 1] : null;
+
+    const cycle = ['Upper', 'Lower + Cardio', 'Full Body'];
+    let nextRecommendedId = 'Upper';
+    if (lastSession) {
+      const idx = cycle.findIndex((c) => c.toLowerCase() === lastSession.sessionName.toLowerCase());
+      if (idx >= 0) {
+        nextRecommendedId = cycle[(idx + 1) % cycle.length];
+      }
+    }
+
+    // Sessions in the last 7 days relative to latest date or today
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 7);
+    const cutoffIso = cutoff.toISOString().slice(0, 10);
+    const recentSessionsCount = uniqueSessions.filter((s) => s.date >= cutoffIso).length;
+
+    return { nextRecommendedId, lastSession, recentSessionsCount };
+  }, [sheetData]);
+
   return (
     <div className="app-shell">
       {/* Top App Bar */}
@@ -442,6 +478,27 @@ export const App: React.FC = () => {
 
             {/* Date Picker + Start New Workout from Référence Programme */}
             <section className="templates-section">
+              {rotationInfo.lastSession && (
+                <div className="rotation-status-card">
+                  <div className="rotation-status-top">
+                    <div>
+                      <span className="rotation-eyebrow">Rythme &amp; Rotation</span>
+                      <div className="rotation-next-title">
+                        ⭐ Prochaine séance : <strong>{rotationInfo.nextRecommendedId}</strong>
+                      </div>
+                      <div className="rotation-last-sub">
+                        Dernière validée : {rotationInfo.lastSession.sessionName} (
+                        {rotationInfo.lastSession.date})
+                      </div>
+                    </div>
+                    <div className="weekly-ring-badge">
+                      <strong>{Math.min(3, rotationInfo.recentSessionsCount)}/3</strong>
+                      <span>7 derniers j.</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="templates-header-row">
                 <div className="section-heading">
                   <Zap size={18} />
@@ -467,12 +524,21 @@ export const App: React.FC = () => {
                     tpl.exercises.map((e) => e.supersetGroup).filter(Boolean)
                   ).size;
                   const totalSets = tpl.exercises.reduce((s, e) => s + e.setsCount, 0);
+                  const isRecommended = tpl.id === rotationInfo.nextRecommendedId;
 
                   return (
-                    <article key={tpl.id} className="template-card">
+                    <article
+                      key={tpl.id}
+                      className={`template-card ${isRecommended ? 'recommended-tpl-card' : ''}`}
+                    >
                       <div className="template-card-top">
                         <div>
-                          <span className="day-pill">{tpl.dayBadge}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                            <span className="day-pill">{tpl.dayBadge}</span>
+                            {isRecommended && (
+                              <span className="recommended-pill">⭐ Prochaine séance</span>
+                            )}
+                          </div>
                           <h3>{tpl.id}</h3>
                         </div>
                         <button

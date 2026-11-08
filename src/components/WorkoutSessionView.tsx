@@ -11,6 +11,7 @@ import {
   Flame,
   History,
   Info,
+  Plus,
   Repeat,
   Sparkles,
   Timer,
@@ -132,26 +133,89 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
     onUpdateSession({ ...session, exercises: nextExercises }, syncNow);
   };
 
+  const parseMaxTargetRep = (targetReps: string): number | null => {
+    // e.g. "8-10" -> 10, "6-8" -> 8, "12-15" -> 15, "8-10/jambe" -> 10
+    const m = targetReps.match(/(\d+)\s*-\s*(\d+)/);
+    if (m) return parseInt(m[2], 10);
+    const single = targetReps.match(/^(\d+)$/);
+    if (single) return parseInt(single[1], 10);
+    return null;
+  };
+
+  const handleAddBonusSet = () => {
+    const lastSet = currentEx.sets[currentEx.sets.length - 1];
+    const newSetNumber = currentEx.sets.length + 1;
+    const bonusSet: ActiveSetState = {
+      setNumber: newSetNumber,
+      weightKg: lastSet ? lastSet.weightKg : 20,
+      reps: lastSet ? lastSet.reps : 10,
+      targetReps: currentEx.targetReps,
+      rir: currentEx.rir,
+      feeling: 'Difficile',
+      completed: false,
+      notes: '',
+    };
+    const nextExercises = session.exercises.map((ex, i) =>
+      i === activeExIdx ? { ...ex, sets: [...ex.sets, bonusSet] } : ex
+    );
+    onUpdateSession({ ...session, exercises: nextExercises }, false);
+  };
+
   const handleToggleCompleteSet = (exIndex: number, setIndex: number) => {
     const ex = session.exercises[exIndex];
     const targetSet = ex.sets[setIndex];
     const willComplete = !targetSet.completed;
 
-    updateSet(
-      exIndex,
-      setIndex,
-      (prev) => ({
-        ...prev,
-        feeling: prev.feeling || 'Modéré',
-        completed: willComplete,
-      }),
-      session.isPreCreatedInSheet // Real-time per-set write if rows are pre-created; batch append on finish if new session
+    const updatedSets = ex.sets.map((s, si) =>
+      si === setIndex
+        ? {
+            ...s,
+            feeling: s.feeling || ('Modéré' as Feeling),
+            completed: willComplete,
+          }
+        : s
+    );
+
+    const allCompletedNow = updatedSets.every((s) => s.completed);
+    const maxTargetRep = parseMaxTargetRep(ex.targetReps);
+    const hitTopOfRangeOnAllSets =
+      allCompletedNow &&
+      maxTargetRep !== null &&
+      updatedSets.every((s) => (s.reps || 0) >= maxTargetRep);
+
+    const nextLevelValidated = hitTopOfRangeOnAllSets ? true : ex.levelValidated;
+
+    const nextExercises = session.exercises.map((item, i) =>
+      i === exIndex
+        ? {
+            ...item,
+            levelValidated: nextLevelValidated,
+            sets: updatedSets,
+          }
+        : item
+    );
+
+    onUpdateSession(
+      { ...session, exercises: nextExercises },
+      session.isPreCreatedInSheet
     );
 
     if (!willComplete) return;
 
     // Micro celebration if all sets of exercise are done
-    const allOtherCompleted = ex.sets.every((s, idx) => (idx === setIndex ? true : s.completed));
+    const allOtherCompleted = allCompletedNow;
+    if (hitTopOfRangeOnAllSets && !ex.levelValidated) {
+      try {
+        confetti({
+          particleCount: 85,
+          spread: 75,
+          origin: { y: 0.7 },
+          colors: ['#10b981', '#34d399', '#fbbf24'],
+        });
+      } catch {
+        // Ignore
+      }
+    }
 
     // Superset automatic rotation logic (e.g. 5A -> 5B -> 5A or 6A -> 6B -> 6C)
     if (ex.supersetGroup && supersetPartnerIndices.length > 1) {
@@ -708,6 +772,15 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
                 </div>
               );
             })}
+
+            <button
+              type="button"
+              className="add-bonus-set-btn"
+              onClick={handleAddBonusSet}
+            >
+              <Plus size={16} />
+              <span>Ajouter une série bonus (Série {currentEx.sets.length + 1})</span>
+            </button>
           </section>
         )}
 
