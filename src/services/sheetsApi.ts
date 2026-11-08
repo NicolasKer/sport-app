@@ -110,8 +110,14 @@ export function applyOfflineQueueToRawSheets(
       }
     } else if (op.op === 'append' && Array.isArray(op.data)) {
       for (const row of op.data) {
+        // If formula like =F101*G101, compute tonnage for display
         const rowVals = row.map((v) => {
           const s = String(v ?? '');
+          if (s.startsWith('=F')) {
+            const w = Number(row[4]) || 0;
+            const r = Number(row[5]) || 0;
+            return String(Math.round(w * r * 10) / 10);
+          }
           return s.startsWith("'") ? s.slice(1) : s;
         });
         journal.push(['', ...rowVals]);
@@ -578,9 +584,13 @@ function safeSheetString(val: string): string {
   return val;
 }
 
-export function buildBatchOperationsForSession(session: ActiveWorkoutSession): BatchOperation[] {
+export function buildBatchOperationsForSession(
+  session: ActiveWorkoutSession,
+  lastSheetRowNumber = 125
+): BatchOperation[] {
   const ops: BatchOperation[] = [];
   const appendRows: (string | number)[][] = [];
+  let nextAppendRowNum = Math.max(5, lastSheetRowNumber + 1);
 
   for (const ex of session.exercises) {
     ex.sets.forEach((s, idx) => {
@@ -621,7 +631,8 @@ export function buildBatchOperationsForSession(session: ActiveWorkoutSession): B
           data: [rowValues],
         });
       } else {
-        const tonnage = ex.isCardio ? 0 : Math.round(s.weightKg * s.reps * 10) / 10;
+        const currentRowNum = nextAppendRowNum++;
+        const formulaOrEmpty = ex.isCardio ? '' : `=F${currentRowNum}*G${currentRowNum}`;
         const rowValues: (string | number)[] = [
           session.date,
           session.sessionName,
@@ -632,7 +643,7 @@ export function buildBatchOperationsForSession(session: ActiveWorkoutSession): B
           safeSheetString(s.targetReps || ex.targetReps),
           safeSheetString(s.rir || ex.rir),
           s.feeling || 'Modéré',
-          tonnage,
+          formulaOrEmpty,
           palierStr,
           noteStr,
         ];

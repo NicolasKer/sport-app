@@ -27,6 +27,8 @@ import { ActiveWorkoutSession, JournalRow } from './types/workout';
 import { WorkoutSessionView } from './components/WorkoutSessionView';
 import { HistoryAndStatsView } from './components/HistoryAndStatsView';
 import { SettingsModal } from './components/SettingsModal';
+import { WorkoutSummaryData, WorkoutSummaryModal } from './components/WorkoutSummaryModal';
+import { normalizeExerciseKey } from './services/sheetsApi';
 
 function getTodayIso(): string {
   const d = new Date();
@@ -48,6 +50,7 @@ export const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [workoutSummary, setWorkoutSummary] = useState<WorkoutSummaryData | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -104,6 +107,11 @@ export const App: React.FC = () => {
     saveActiveSessionDraft(session);
   };
 
+  const getLastSheetRowNumber = () => {
+    if (!sheetData || sheetData.journalRows.length === 0) return 125;
+    return Math.max(...sheetData.journalRows.map((r) => r.sheetRowNumber || 125));
+  };
+
   const handleUpdateActiveSession = async (
     updated: ActiveWorkoutSession,
     triggerSync = false
@@ -115,7 +123,7 @@ export const App: React.FC = () => {
     // For brand-new sessions ('append'), we wait until 'Terminer & Synchroniser la séance' so rows are appended once!
     if (triggerSync && updated.isPreCreatedInSheet) {
       setIsSyncing(true);
-      const ops = buildBatchOperationsForSession(updated);
+      const ops = buildBatchOperationsForSession(updated, getLastSheetRowNumber());
       const res = await syncBatchOperations(ops);
       setIsSyncing(false);
       if (res.ok) {
@@ -146,20 +154,92 @@ export const App: React.FC = () => {
             })),
           })),
         };
-    const ops = buildBatchOperationsForSession(sessionToSync);
+    const ops = buildBatchOperationsForSession(sessionToSync, getLastSheetRowNumber());
     const res = await syncBatchOperations(ops);
     setIsSyncing(false);
+
+    // Compute workout summary stats before closing activeSession
+    const durationMinutes = Math.max(
+      1,
+      Math.round((Date.now() - (activeSession.startedAt || Date.now())) / 60000)
+    );
+    let totalSets = 0;
+    let totalTonnage = 0;
+    const validatedPaliers: string[] = [];
+    const newRecords: { exercise: string; weightKg: number; reps: number }[] = [];
+
+    for (const ex of sessionToSync.exercises) {
+      if (ex.levelValidated) validatedPaliers.push(ex.exerciseName);
+      let exBestWeight = 0;
+      let exBestReps = 0;
+      for (const s of ex.sets) {
+        if (!s.completed) continue;
+        totalSets++;
+        if (!ex.isCardio) {
+          totalTonnage += (s.weightKg || 0) * (s.reps || 0);
+          if ((s.weightKg || 0) > exBestWeight) {
+            exBestWeight = s.weightKg || 0;
+            exBestReps = s.reps || 0;
+          }
+        }
+      }
+
+      if (!ex.isCardio && exBestWeight > 0 && sheetData) {
+        const normKey = normalizeExerciseKey(ex.exerciseName);
+        const prevMax = sheetData.journalRows
+          .filter(
+            (r) =>
+              r.date !== activeSession.date &&
+              normalizeExerciseKey(r.exercise) === normKey &&
+              (r.weightKg || 0) > 0
+          )
+          .reduce((max, r) => Math.max(max, r.weightKg || 0), 0);
+
+        if (prevMax > 0 && exBestWeight > prevMax) {
+          newRecords.push({
+            exercise: ex.exerciseName,
+            weightKg: exBestWeight,
+            reps: exBestReps,
+          });
+        }
+      }
+    }
+
+    // Previous session of same type tonnage
+    let previousSessionTonnage: number | null = null;
+    if (sheetData) {
+      const sameTypeRows = sheetData.journalRows.filter(
+        (r) =>
+          r.sessionName === activeSession.sessionName &&
+          r.date !== activeSession.date &&
+          ((r.weightKg || 0) > 0 || (r.reps || 0) > 0)
+      );
+      const prevDates = Array.from(new Set(sameTypeRows.map((r) => r.date))).sort();
+      if (prevDates.length > 0) {
+        const latestPrevDate = prevDates[prevDates.length - 1];
+        previousSessionTonnage = sameTypeRows
+          .filter((r) => r.date === latestPrevDate)
+          .reduce((sum, r) => sum + (r.weightKg || 0) * (r.reps || 0), 0);
+      }
+    }
 
     saveActiveSessionDraft(null);
     setActiveSession(null);
 
-    if (res.ok) {
-      showToast(`Séance ${activeSession.sessionName} enregistrée dans Google Sheets ! 🏆`);
-      await loadData();
-    } else {
-      showToast('Séance sauvegardée sur le téléphone (en attente de réseau)');
-      await loadData();
-    }
+    setWorkoutSummary({
+      sessionName: activeSession.sessionName,
+      date: activeSession.date,
+      durationMinutes,
+      totalSets,
+      totalTonnage: Math.round(totalTonnage * 10) / 10,
+      previousSessionTonnage:
+        previousSessionTonnage !== null ? Math.round(previousSessionTonnage * 10) / 10 : null,
+      validatedPaliers,
+      newRecords,
+      syncedOk: res.ok,
+    });
+
+    await loadData();
   };
 
   const handleFlushOfflineQueue = async () => {
@@ -467,6 +547,11 @@ export const App: React.FC = () => {
         onClose={() => setIsSettingsOpen(false)}
         onRefreshSheet={loadData}
         onFlushOfflineQueue={handleFlushOfflineQueue}
+      />
+
+      <WorkoutSummaryModal
+        summary={workoutSummary}
+        onClose={() => setWorkoutSummary(null)}
       />
 
       {toastMessage && (

@@ -99,6 +99,25 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
     setTimerTotalSec((prev) => Math.max(15, prev + deltaSec));
   };
 
+  const updateSetWeightWithCascade = (exIndex: number, setIndex: number, newWeight: number) => {
+    const cleanWeight = Math.max(0, Number(newWeight.toFixed(2)));
+    const nextExercises = session.exercises.map((ex, i) => {
+      if (i !== exIndex) return ex;
+      const nextSets = ex.sets.map((s, si) => {
+        if (si === setIndex) {
+          return { ...s, weightKg: cleanWeight };
+        }
+        // Auto-propagate weight to subsequent unvalidated sets of the same exercise
+        if (si > setIndex && !s.completed) {
+          return { ...s, weightKg: cleanWeight };
+        }
+        return s;
+      });
+      return { ...ex, sets: nextSets };
+    });
+    onUpdateSession({ ...session, exercises: nextExercises }, false);
+  };
+
   const updateSet = (
     exIndex: number,
     setIndex: number,
@@ -554,10 +573,7 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
                           type="button"
                           className="step-btn"
                           onClick={() =>
-                            updateSet(activeExIdx, setIdx, (prev) => ({
-                              ...prev,
-                              weightKg: Math.max(0, Number((prev.weightKg - 2.5).toFixed(2))),
-                            }))
+                            updateSetWeightWithCascade(activeExIdx, setIdx, s.weightKg - 2.5)
                           }
                           aria-label="Moins 2,5 kg"
                         >
@@ -573,20 +589,18 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
                           onChange={(e) => {
                             const val = e.target.value.replace(',', '.');
                             const num = parseFloat(val);
-                            updateSet(activeExIdx, setIdx, (prev) => ({
-                              ...prev,
-                              weightKg: isNaN(num) ? 0 : num,
-                            }));
+                            updateSetWeightWithCascade(
+                              activeExIdx,
+                              setIdx,
+                              isNaN(num) ? 0 : num
+                            );
                           }}
                         />
                         <button
                           type="button"
                           className="step-btn"
                           onClick={() =>
-                            updateSet(activeExIdx, setIdx, (prev) => ({
-                              ...prev,
-                              weightKg: Number((prev.weightKg + 2.5).toFixed(2)),
-                            }))
+                            updateSetWeightWithCascade(activeExIdx, setIdx, s.weightKg + 2.5)
                           }
                           aria-label="Plus 2,5 kg"
                         >
