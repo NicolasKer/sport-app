@@ -63,6 +63,7 @@ export function normalizeExerciseKey(name: string): string {
     .trim();
 
   if (n.includes('pec deck') || n.includes('ecartes poulie')) return 'pec_deck_ecartes';
+  if (n.includes('presse a cuisses') || n.includes('hack squat')) return 'presse_a_cuisses';
   if (n.includes('machine a abdos') || n.includes('crunch poulie')) return 'abdos_crunch';
   if (n.includes('mollets debout')) return 'mollets';
   if (n.includes('chest-supported row')) return 'chest_supported_row';
