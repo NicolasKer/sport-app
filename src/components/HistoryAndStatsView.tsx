@@ -15,11 +15,18 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
   onDeleteSession,
 }) => {
   const [selectedExerciseName, setSelectedExerciseName] = useState<string | null>(null);
-  const [chartMode, setChartMode] = useState<'avgWeight' | 'tonnage' | 'maxWeight'>('avgWeight');
+  const [chartMode, setChartMode] = useState<'avgWeight' | 'e1rm' | 'tonnage' | 'maxWeight'>('avgWeight');
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [selectedSessionType, setSelectedSessionType] = useState<
     'Full Body' | 'Lower + Cardio' | 'Upper'
   >('Full Body');
+
+  const computeEpley1RM = (weight: number, reps: number): number => {
+    if (!weight || weight <= 0) return 0;
+    const r = Math.min(20, Math.max(1, reps || 1));
+    if (r === 1) return weight;
+    return Math.round(weight * (1 + r / 30) * 10) / 10;
+  };
 
   const pastSessions = useMemo(() => {
     const groups = new Map<
@@ -79,6 +86,7 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
         avgWeightLatest: number;
         maxWeight: number;
         reps: number;
+        e1rm: number;
         date: string;
         levelValidated: boolean;
       }
@@ -87,6 +95,7 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
     // Group by exercise + date to compute session averages as well
     for (const r of journalRows) {
       if (!r.weightKg || r.weightKg <= 0) continue;
+      const set1rm = computeEpley1RM(r.weightKg, r.reps || 1);
       const existing = prMap.get(r.exercise);
       if (
         !existing ||
@@ -98,9 +107,12 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
           avgWeightLatest: r.weightKg,
           maxWeight: r.weightKg,
           reps: r.reps || 0,
+          e1rm: Math.max(set1rm, existing?.e1rm || 0),
           date: r.date,
           levelValidated: r.levelValidated,
         });
+      } else if (existing && set1rm > existing.e1rm) {
+        existing.e1rm = set1rm;
       }
     }
 
@@ -118,6 +130,7 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
         avgWeight: number;
         maxWeight: number;
         bestReps: number;
+        best1RM: number;
         sessionTonnage: number;
         setsText: string;
       }
@@ -134,6 +147,7 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
           avgWeight: r.weightKg,
           maxWeight: r.weightKg,
           bestReps: r.reps || 0,
+          best1RM: computeEpley1RM(r.weightKg, r.reps || 1),
           sessionTonnage: 0,
           setsText: '',
         });
@@ -142,6 +156,11 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
       entry.weights.push(r.weightKg);
       const sumW = entry.weights.reduce((acc, w) => acc + w, 0);
       entry.avgWeight = Math.round((sumW / entry.weights.length) * 10) / 10;
+
+      const current1RM = computeEpley1RM(r.weightKg, r.reps || 1);
+      if (current1RM > entry.best1RM) {
+        entry.best1RM = current1RM;
+      }
 
       if (r.weightKg >= entry.maxWeight) {
         entry.maxWeight = r.weightKg;
@@ -279,8 +298,11 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
               onClick={() => setSelectedExerciseName(pr.exercise)}
             >
               <div className="pr-ex-name">{pr.exercise.split('(')[0].trim()}</div>
-              <div className="pr-weight">
-                {pr.maxWeight} <span>kg</span>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.35rem' }}>
+                <div className="pr-weight">
+                  {pr.maxWeight} <span>kg</span>
+                </div>
+                <span className="e1rm-badge">⚡ 1RM ~{pr.e1rm}kg</span>
               </div>
               <div className="pr-meta">
                 × {pr.reps} reps · {pr.date.slice(5)} 📈
@@ -454,6 +476,14 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
                   </button>
                   <button
                     type="button"
+                    className={`superset-mini-tab ${chartMode === 'e1rm' ? 'active' : ''}`}
+                    style={{ flex: 1 }}
+                    onClick={() => setChartMode('e1rm')}
+                  >
+                    ⚡ 1RM Est.
+                  </button>
+                  <button
+                    type="button"
                     className={`superset-mini-tab ${chartMode === 'tonnage' ? 'active' : ''}`}
                     style={{ flex: 1 }}
                     onClick={() => setChartMode('tonnage')}
@@ -474,6 +504,8 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
                   <div className="chart-caption">
                     {chartMode === 'avgWeight'
                       ? 'Évolution de la Charge Moyenne des séries (kg)'
+                      : chartMode === 'e1rm'
+                      ? 'Évolution de la Force — 1RM Théorique Epley (kg)'
                       : chartMode === 'tonnage'
                       ? 'Évolution du Tonnage Total sur cet exercice (kg)'
                       : 'Évolution de la Charge Max (kg)'}
@@ -483,6 +515,8 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
                       const values = exerciseProgression.map((p) =>
                         chartMode === 'avgWeight'
                           ? p.avgWeight
+                          : chartMode === 'e1rm'
+                          ? p.best1RM
                           : chartMode === 'tonnage'
                           ? p.sessionTonnage
                           : p.maxWeight
@@ -495,6 +529,8 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
                         const val =
                           chartMode === 'avgWeight'
                             ? p.avgWeight
+                            : chartMode === 'e1rm'
+                            ? p.best1RM
                             : chartMode === 'tonnage'
                             ? p.sessionTonnage
                             : p.maxWeight;

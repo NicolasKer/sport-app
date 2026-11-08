@@ -100,6 +100,10 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
   const [timerHint, setTimerHint] = useState<string>('');
   const [showSwapPicker, setShowSwapPicker] = useState<boolean>(false);
   const [customSwapName, setCustomSwapName] = useState<string>('');
+  const [showAddExerciseModal, setShowAddExerciseModal] = useState<boolean>(false);
+  const [newExName, setNewExName] = useState<string>('');
+  const [newExSetsCount, setNewExSetsCount] = useState<number>(3);
+  const [newExTargetReps, setNewExTargetReps] = useState<string>('10-12');
 
   // Cardio helper fields adapted to session type (Full Body = Course 12min/10,5kmh, Lower = Marche inclinée 25min/5,3kmh/10%)
   const isFullBodySession = session.sessionName.toLowerCase().includes('full');
@@ -321,6 +325,45 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
     setCustomSwapName('');
   };
 
+  const handleAddCustomExercise = (presetName?: string) => {
+    const clean = (presetName ?? newExName).trim();
+    if (!clean) return;
+    const setsCount = Math.max(1, Math.min(10, newExSetsCount || 3));
+    const targetReps = newExTargetReps.trim() || '10-12';
+    const isCardio = clean.toLowerCase().includes('cardio') || targetReps.toLowerCase().includes('min');
+    const sets: ActiveSetState[] = Array.from({ length: isCardio ? 1 : setsCount }, (_, idx) => ({
+      setNumber: idx + 1,
+      weightKg: isCardio ? 0 : 20,
+      reps: isCardio ? 1 : parseInt(targetReps.split('-')[0], 10) || 10,
+      targetReps,
+      rir: isCardio ? '-' : '1-2',
+      feeling: 'Modéré',
+      completed: false,
+      notes: '',
+    }));
+
+    const newExercise: ActiveExerciseState = {
+      exerciseName: clean,
+      codePrefix: `+${session.exercises.length + 1}`,
+      supersetGroup: null,
+      targetReps,
+      rir: isCardio ? '-' : '1-2',
+      restSeconds: 90,
+      restLabel: "1'30",
+      instructions: 'Exercice hors-programme ajouté à la séance',
+      isCardio,
+      levelValidated: false,
+      exerciseNotes: '',
+      sets,
+    };
+
+    const nextExercises = [...session.exercises, newExercise];
+    onUpdateSession({ ...session, exercises: nextExercises }, false);
+    setActiveExIdx(nextExercises.length - 1);
+    setShowAddExerciseModal(false);
+    setNewExName('');
+  };
+
   const handleTogglePalier = () => {
     const willValidate = !currentEx.levelValidated;
     if (willValidate) {
@@ -459,6 +502,19 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
               </button>
             );
           })}
+          <button
+            type="button"
+            className="ex-rail-pill"
+            style={{
+              borderColor: 'rgba(6, 182, 212, 0.45)',
+              color: '#67e8f9',
+              fontWeight: 700,
+            }}
+            onClick={() => setShowAddExerciseModal(true)}
+          >
+            <Plus size={14} />
+            <span>Ajouter un exo</span>
+          </button>
         </nav>
       </header>
 
@@ -993,6 +1049,100 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
         onAdjustSeconds={adjustRestTimer}
         onDismiss={() => setTimerEndMs(null)}
       />
+
+      {/* Add Custom Exercise Modal */}
+      {showAddExerciseModal && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setShowAddExerciseModal(false)}
+        >
+          <div className="modal-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>➕ Ajouter un exercice hors-programme</h2>
+              <button
+                type="button"
+                className="icon-ghost-btn"
+                onClick={() => setShowAddExerciseModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="swap-picker-title" style={{ marginBottom: '0.45rem' }}>
+              Suggestions rapides :
+            </div>
+            <div className="swap-picker-chips" style={{ marginBottom: '0.9rem' }}>
+              {[
+                'Leg Extension Machine',
+                'Hip Thrust Machine',
+                'Dips Assistés / Poids du corps',
+                'Tractions Assistées',
+                'Shrugs Haltères (Trapèzes)',
+                'Abducteurs / Adducteurs Machine',
+                'Gainage Planche',
+                'Curl Pupitre (Larry Scott)',
+              ].map((sug) => (
+                <button
+                  key={sug}
+                  type="button"
+                  className="swap-chip-btn"
+                  onClick={() => setNewExName(sug)}
+                >
+                  + {sug}
+                </button>
+              ))}
+            </div>
+
+            <div className="field-group" style={{ marginBottom: '0.75rem' }}>
+              <label htmlFor="custom-ex-name">Nom de l'exercice ou de la machine</label>
+              <input
+                id="custom-ex-name"
+                type="text"
+                placeholder="Ex: Leg Extension, Hip Thrust, Dips..."
+                value={newExName}
+                onChange={(e) => setNewExName(e.target.value)}
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem', marginBottom: '1rem' }}>
+              <div className="field-group">
+                <label htmlFor="custom-ex-sets">Nombre de séries</label>
+                <input
+                  id="custom-ex-sets"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={newExSetsCount}
+                  onChange={(e) => setNewExSetsCount(parseInt(e.target.value, 10) || 3)}
+                />
+              </div>
+              <div className="field-group">
+                <label htmlFor="custom-ex-reps">Cible Reps</label>
+                <input
+                  id="custom-ex-reps"
+                  type="text"
+                  placeholder="10-12"
+                  value={newExTargetReps}
+                  onChange={(e) => setNewExTargetReps(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="primary-validate-btn"
+              style={{ marginTop: 0 }}
+              disabled={!newExName.trim()}
+              onClick={() => handleAddCustomExercise()}
+            >
+              <Plus size={18} />
+              <span>Ajouter à ma séance</span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
