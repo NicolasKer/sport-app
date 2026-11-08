@@ -284,28 +284,7 @@ export const App: React.FC = () => {
     }
   };
 
-  if (activeSession) {
-    return (
-      <>
-        <WorkoutSessionView
-          session={activeSession}
-          syncStatusText={syncStatusText}
-          isSyncing={isSyncing}
-          onUpdateSession={handleUpdateActiveSession}
-          onFinishWorkout={handleFinishWorkout}
-          onExitWithoutFinishing={() => {
-            setActiveSession(null);
-          }}
-        />
-        {toastMessage && <div className="toast-banner">{toastMessage}</div>}
-      </>
-    );
-  }
-
-  const offlineCount = getOfflineQueue().length;
-  const savedDraft = loadActiveSessionDraft();
-
-  // Compute rotation recommendation and recent 7-day sessions
+  // Compute rotation recommendation and recent 7-day sessions (must be above early return!)
   const rotationInfo = React.useMemo(() => {
     if (!sheetData) return { nextRecommendedId: 'Upper', lastSession: null, recentSessionsCount: 0 };
     const filledRows = sheetData.journalRows.filter(
@@ -340,6 +319,27 @@ export const App: React.FC = () => {
 
     return { nextRecommendedId, lastSession, recentSessionsCount };
   }, [sheetData]);
+
+  if (activeSession) {
+    return (
+      <>
+        <WorkoutSessionView
+          session={activeSession}
+          syncStatusText={syncStatusText}
+          isSyncing={isSyncing}
+          onUpdateSession={handleUpdateActiveSession}
+          onFinishWorkout={handleFinishWorkout}
+          onExitWithoutFinishing={() => {
+            setActiveSession(null);
+          }}
+        />
+        {toastMessage && <div className="toast-banner">{toastMessage}</div>}
+      </>
+    );
+  }
+
+  const offlineCount = getOfflineQueue().length;
+  const savedDraft = loadActiveSessionDraft();
 
   return (
     <div className="app-shell">
