@@ -126,7 +126,7 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
         feeling: prev.feeling || 'Modéré',
         completed: willComplete,
       }),
-      true // Trigger real-time Google Sheets sync on set validation!
+      session.isPreCreatedInSheet // Real-time per-set write if rows are pre-created; batch append on finish if new session
     );
 
     if (!willComplete) return;
