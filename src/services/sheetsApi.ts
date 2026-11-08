@@ -10,12 +10,12 @@ import {
   ProgramTemplate,
 } from '../types/workout';
 
-const STORAGE_KEY_SHEETS_CACHE = 'ironpulse_sheets_cache_v2';
-const STORAGE_KEY_APPS_SCRIPT_URL = 'ironpulse_apps_script_url_v1';
+const STORAGE_KEY_SHEETS_CACHE = 'ironpulse_sheets_cache_v3';
+const STORAGE_KEY_APPS_SCRIPT_URL = 'ironpulse_apps_script_url_v2';
 const DEFAULT_APPS_SCRIPT_URL =
   'https://script.google.com/macros/s/AKfycbyOc8ZcDyqD613HnssoCJBN6T0QgR2i6Div1AVqV-XxUwvT-H-MEwwXajZejCbadsPQfg/exec';
-const STORAGE_KEY_OFFLINE_QUEUE = 'ironpulse_offline_queue_v2';
-const STORAGE_KEY_ACTIVE_SESSION = 'ironpulse_active_session_v2';
+const STORAGE_KEY_OFFLINE_QUEUE = 'ironpulse_offline_queue_v3';
+const STORAGE_KEY_ACTIVE_SESSION = 'ironpulse_active_session_v3';
 
 export interface ParsedSheetData {
   journalRows: JournalRow[];
