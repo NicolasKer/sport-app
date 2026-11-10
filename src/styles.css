@@ -881,48 +881,157 @@ button:focus-visible {
 .set-controls-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.65rem;
+  gap: 0.75rem;
 }
 
-/* Gestalt proximity rule: label closer to its control than adjacent groups */
-.stepper-box label,
-.field-group label {
-  display: block;
-  font-size: 0.76rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 0.3rem;
+/* Gestalt grouping: distinct visual containment and theming for weight vs reps */
+.stepper-box {
+  border-radius: 14px;
+  padding: 0.6rem 0.55rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.stepper-box.weight-box {
+  background: linear-gradient(180deg, rgba(6, 182, 212, 0.1) 0%, rgba(15, 23, 42, 0.7) 100%);
+  border: 1.5px solid rgba(6, 182, 212, 0.35);
+}
+
+.stepper-box.weight-box:focus-within {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.4);
+}
+
+.stepper-box.reps-box {
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.1) 0%, rgba(15, 23, 42, 0.7) 100%);
+  border: 1.5px solid rgba(245, 158, 11, 0.35);
+}
+
+.stepper-box.reps-box:focus-within {
+  border-color: var(--accent-amber);
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.4);
+}
+
+.stepper-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.45rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+
+.stepper-label-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.stepper-label.weight-label .stepper-label-main {
+  color: #38bdf8;
+}
+
+.stepper-label.reps-label .stepper-label-main {
+  color: #fbbf24;
+}
+
+.stepper-unit-badge {
+  font-size: 0.66rem;
+  font-weight: 800;
+  padding: 0.12rem 0.38rem;
+  border-radius: 5px;
+  line-height: 1;
+}
+
+.stepper-unit-badge.weight-badge {
+  background: rgba(6, 182, 212, 0.22);
+  color: #67e8f9;
+  border: 1px solid rgba(6, 182, 212, 0.35);
+}
+
+.stepper-unit-badge.reps-badge {
+  background: rgba(245, 158, 11, 0.22);
+  color: #fde68a;
+  border: 1px solid rgba(245, 158, 11, 0.35);
 }
 
 .stepper-row {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.25rem;
 }
 
 .step-btn {
-  min-width: 46px;
+  min-width: 44px;
   height: 48px;
   border-radius: 10px;
   border: 1px solid var(--border-subtle);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-weight: 700;
-  font-size: 0.85rem;
+  font-weight: 800;
+  font-size: 0.88rem;
   cursor: pointer;
-  padding: 0 0.4rem;
+  padding: 0 0.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.step-btn:active {
-  transform: scale(0.96);
-  background: var(--bg-card-elevated);
+.step-btn.weight-step-btn {
+  background: rgba(6, 182, 212, 0.14);
+  border-color: rgba(6, 182, 212, 0.38);
+  color: #67e8f9;
+}
+
+.step-btn.weight-step-btn:active {
+  background: rgba(6, 182, 212, 0.32);
+  transform: scale(0.95);
+}
+
+.step-btn.reps-step-btn {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.38);
+  color: #fcd34d;
+}
+
+.step-btn.reps-step-btn:active {
+  background: rgba(245, 158, 11, 0.32);
+  transform: scale(0.95);
 }
 
 .stepper-input {
+  min-width: 0;
+  flex: 1;
   text-align: center;
-  font-weight: 800;
-  font-size: 1.1rem !important;
-  padding: 0.4rem !important;
+  font-weight: 900;
+  font-size: 1.18rem !important;
+  height: 48px;
+  border-radius: 10px;
+  padding: 0.25rem !important;
+}
+
+.stepper-input.weight-input {
+  background: rgba(9, 13, 22, 0.75);
+  border: 1.5px solid rgba(6, 182, 212, 0.3);
+  color: #f0f9ff;
+}
+
+.stepper-input.weight-input:focus {
+  border-color: var(--accent-cyan);
+  outline: none;
+}
+
+.stepper-input.reps-input {
+  background: rgba(9, 13, 22, 0.75);
+  border: 1.5px solid rgba(245, 158, 11, 0.3);
+  color: #fffbeb;
+}
+
+.stepper-input.reps-input:focus {
+  border-color: var(--accent-amber);
+  outline: none;
 }
 
 .set-bottom-row {

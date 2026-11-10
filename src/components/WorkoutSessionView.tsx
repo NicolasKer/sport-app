@@ -801,16 +801,21 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
 
                   <div className="set-controls-grid">
                     {/* Weight Control */}
-                    <div className="stepper-box">
-                      <label htmlFor={weightInputId}>Charge (kg)</label>
+                    <div className="stepper-box weight-box">
+                      <label htmlFor={weightInputId} className="stepper-label weight-label">
+                        <span className="stepper-label-main">
+                          <Dumbbell size={13} className="stepper-label-icon" /> Charge
+                        </span>
+                        <span className="stepper-unit-badge weight-badge">kg</span>
+                      </label>
                       <div className="stepper-row">
                         <button
                           type="button"
-                          className="step-btn"
+                          className="step-btn weight-step-btn"
                           onClick={() =>
                             updateSetWeightWithCascade(activeExIdx, setIdx, s.weightKg - 2.5)
                           }
-                          aria-label="Moins 2,5 kg"
+                          aria-label="Diminuer la charge de 2,5 kg"
                         >
                           -2.5
                         </button>
@@ -819,7 +824,7 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
                           name={weightInputId}
                           type="text"
                           inputMode="decimal"
-                          className="stepper-input"
+                          className="stepper-input weight-input"
                           value={s.weightKg}
                           onChange={(e) => {
                             const val = e.target.value.replace(',', '.');
@@ -833,11 +838,11 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
                         />
                         <button
                           type="button"
-                          className="step-btn"
+                          className="step-btn weight-step-btn"
                           onClick={() =>
                             updateSetWeightWithCascade(activeExIdx, setIdx, s.weightKg + 2.5)
                           }
-                          aria-label="Plus 2,5 kg"
+                          aria-label="Augmenter la charge de 2,5 kg"
                         >
                           +2.5
                         </button>
@@ -845,19 +850,24 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
                     </div>
 
                     {/* Reps Control */}
-                    <div className="stepper-box">
-                      <label htmlFor={repsInputId}>Répétitions</label>
+                    <div className="stepper-box reps-box">
+                      <label htmlFor={repsInputId} className="stepper-label reps-label">
+                        <span className="stepper-label-main">
+                          <Repeat size={13} className="stepper-label-icon" /> Répétitions
+                        </span>
+                        <span className="stepper-unit-badge reps-badge">reps</span>
+                      </label>
                       <div className="stepper-row">
                         <button
                           type="button"
-                          className="step-btn"
+                          className="step-btn reps-step-btn"
                           onClick={() =>
                             updateSet(activeExIdx, setIdx, (prev) => ({
                               ...prev,
                               reps: Math.max(0, prev.reps - 1),
                             }))
                           }
-                          aria-label="Moins 1 répétition"
+                          aria-label="Diminuer les répétitions de 1"
                         >
                           -1
                         </button>
@@ -866,7 +876,7 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
                           name={repsInputId}
                           type="text"
                           inputMode="numeric"
-                          className="stepper-input"
+                          className="stepper-input reps-input"
                           value={s.reps}
                           onChange={(e) => {
                             const num = parseInt(e.target.value, 10);
@@ -878,14 +888,14 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
                         />
                         <button
                           type="button"
-                          className="step-btn"
+                          className="step-btn reps-step-btn"
                           onClick={() =>
                             updateSet(activeExIdx, setIdx, (prev) => ({
                               ...prev,
                               reps: prev.reps + 1,
                             }))
                           }
-                          aria-label="Plus 1 répétition"
+                          aria-label="Augmenter les répétitions de 1"
                         >
                           +1
                         </button>
