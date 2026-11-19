@@ -9,6 +9,7 @@ import {
   Flame,
   Play,
   Plus,
+  QrCode,
   RefreshCw,
   Settings,
   Sparkles,
@@ -45,6 +46,7 @@ import { HistoryAndStatsView } from './components/HistoryAndStatsView';
 import { SettingsModal } from './components/SettingsModal';
 import { WorkoutSummaryData, WorkoutSummaryModal } from './components/WorkoutSummaryModal';
 import { ProgramEditorModal } from './components/ProgramEditorModal';
+import { ShareAppModal } from './components/ShareAppModal';
 import { normalizeExerciseKey } from './services/sheetsApi';
 
 interface BeforeInstallPromptEvent extends Event {
@@ -71,6 +73,7 @@ export const App: React.FC = () => {
   const [syncStatusText, setSyncStatusText] = useState<string>('Connecté');
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [workoutSummary, setWorkoutSummary] = useState<WorkoutSummaryData | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<ProgramTemplate | 'new' | null>(null);
@@ -541,13 +544,22 @@ export const App: React.FC = () => {
             <Cloud size={14} />
             <span>
               {sheetData?.source === 'gsheets-plugin'
-                ? 'Sheet Connecté'
+                ? 'Sheet'
                 : sheetData?.source === 'apps-script'
-                ? 'Cloud Sécurisé'
+                ? 'Cloud'
                 : sheetData?.source === 'local-guest'
-                ? 'Mode Local'
-                : 'Hors-ligne'}
+                ? 'Local'
+                : 'Offline'}
             </span>
+          </button>
+          <button
+            type="button"
+            className="icon-ghost-btn"
+            onClick={() => setIsShareModalOpen(true)}
+            aria-label="Partager l'application par QR Code"
+            title="Partager l'appli à un ami (QR Code public)"
+          >
+            <QrCode size={18} />
           </button>
           <button
             type="button"
@@ -898,6 +910,10 @@ export const App: React.FC = () => {
         canInstallApp={canInstallApp}
         isInstallingApp={isInstallingApp}
         onInstallApp={handleInstallApp}
+        onOpenPublicShare={() => {
+          setIsSettingsOpen(false);
+          setIsShareModalOpen(true);
+        }}
         onClose={() => setIsSettingsOpen(false)}
         onRefreshSheet={loadData}
         onFlushOfflineQueue={handleFlushOfflineQueue}
@@ -922,6 +938,11 @@ export const App: React.FC = () => {
         summary={workoutSummary}
         profileName={profileName}
         onClose={() => setWorkoutSummary(null)}
+      />
+
+      <ShareAppModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
       />
 
       {toastMessage && (

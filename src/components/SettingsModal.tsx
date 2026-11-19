@@ -47,6 +47,7 @@ interface SettingsModalProps {
   canInstallApp: boolean;
   isInstallingApp: boolean;
   onInstallApp: () => void;
+  onOpenPublicShare: () => void;
   onClose: () => void;
   onRefreshSheet: () => void;
   onFlushOfflineQueue: () => void;
@@ -140,6 +141,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   canInstallApp,
   isInstallingApp,
   onInstallApp,
+  onOpenPublicShare,
   onClose,
   onRefreshSheet,
   onFlushOfflineQueue,
@@ -396,6 +398,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <button type="button" className="secondary-btn" onClick={onRefreshSheet}>
               <RefreshCw size={15} /> Actualiser
             </button>
+            <button
+              type="button"
+              className="secondary-btn"
+              style={{ borderColor: 'rgba(16, 185, 129, 0.4)', color: '#6ee7b7' }}
+              onClick={onOpenPublicShare}
+            >
+              <QrCode size={15} /> Partager à un ami (QR public)
+            </button>
             {offlineQueueCount > 0 && hasCloudConfigured && (
               <button type="button" className="primary-btn-sm" onClick={onFlushOfflineQueue}>
                 <Cloud size={15} /> Envoyer {offlineQueueCount} modif(s)
@@ -490,12 +500,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {magicLink && (
           <section className="settings-section-card pairing-card">
             <div className="settings-section-header">
-              <Smartphone size={17} color="#38bdf8" />
+              <Smartphone size={17} color="#fbbf24" />
               <div>
-                <h3>Connecter un autre appareil (PC ↔ Téléphone)</h3>
+                <h3>🔐 Privé — Transférer MON compte (PC ↔ Téléphone)</h3>
+                <div className="private-warning-pill">
+                  ⚠️ Usage personnel uniquement — ne pas faire scanner à un ami
+                </div>
                 <p>
-                  Transfère ta connexion vers ton téléphone sans rien recopier.{' '}
-                  <strong>Ne partage pas ce QR Code ni ce lien</strong> (il contient ta clé privée).
+                  Contient ta clé d&apos;accès Google Sheet pour appairer uniquement tes propres appareils.
                 </p>
               </div>
             </div>
@@ -503,13 +515,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="pairing-actions-row">
               <button
                 type="button"
-                className="primary-btn-sm"
-                style={{ flex: 1, justifyContent: 'center' }}
+                className="secondary-btn"
+                style={{ flex: 1, justifyContent: 'center', borderColor: 'rgba(245, 158, 11, 0.35)', color: '#fde68a' }}
                 onClick={() => setShowQrCode((prev) => !prev)}
                 aria-expanded={showQrCode}
               >
                 <QrCode size={15} />
-                <span>{showQrCode ? 'Masquer le QR Code' : 'Afficher le QR Code'}</span>
+                <span>{showQrCode ? 'Masquer QR privé' : 'Afficher QR privé'}</span>
               </button>
               <button
                 type="button"
@@ -530,7 +542,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   width={210}
                   height={210}
                 />
-                <span>Scanne avec l&apos;appareil photo de ton téléphone pour te connecter en 1 clic</span>
+                <span style={{ color: '#fde68a' }}>
+                  QR PRIVÉ — Scanne uniquement avec ton propre appareil
+                </span>
               </div>
             )}
           </section>
