@@ -10,12 +10,17 @@ import {
   ProgramTemplate,
 } from '../types/workout';
 
-const STORAGE_KEY_SHEETS_CACHE = 'ironpulse_sheets_cache_v3';
-const STORAGE_KEY_APPS_SCRIPT_URL = 'ironpulse_apps_script_url_v2';
-const DEFAULT_APPS_SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbyOc8ZcDyqD613HnssoCJBN6T0QgR2i6Div1AVqV-XxUwvT-H-MEwwXajZejCbadsPQfg/exec';
+const STORAGE_KEY_SHEETS_CACHE = 'ironpulse_sheets_cache_v4';
+const STORAGE_KEY_LOCAL_GUEST_SHEETS = 'ironpulse_local_guest_sheets_v1';
+const STORAGE_KEY_APPS_SCRIPT_URL = 'ironpulse_apps_script_url_v3';
+const STORAGE_KEY_API_KEY = 'ironpulse_api_key_v1';
+const STORAGE_KEY_PROFILE_NAME = 'ironpulse_profile_name_v1';
+const STORAGE_KEY_SHEET_META = 'ironpulse_sheet_meta_v1';
 const STORAGE_KEY_OFFLINE_QUEUE = 'ironpulse_offline_queue_v3';
 const STORAGE_KEY_ACTIVE_SESSION = 'ironpulse_active_session_v3';
+
+const LEGACY_KEYS_TO_PURGE = ['ironpulse_sheets_cache_v3', 'ironpulse_apps_script_url_v2'];
+const TRUSTED_GAS_ORIGIN = 'https://script.google.com';
 
 export interface ParsedSheetData {
   journalRows: JournalRow[];
@@ -25,15 +30,159 @@ export interface ParsedSheetData {
     sessionName: string;
     rows: JournalRow[];
   }[];
-  source: 'gsheets-plugin' | 'apps-script' | 'local-cache';
+  source: 'gsheets-plugin' | 'apps-script' | 'local-guest' | 'local-cache';
+  authError?: string;
+}
+
+export function isValidAppsScriptUrl(candidate: string): boolean {
+  const trimmed = candidate.trim();
+  if (!trimmed) return false;
+  try {
+    const OriginCtor = (globalThis as unknown as { Origin?: { from: (v: string) => { isSameOrigin: (o: unknown) => boolean } } }).Origin;
+    if (OriginCtor && typeof OriginCtor.from === 'function') {
+      const candidateOrigin = OriginCtor.from(trimmed);
+      const trustedOrigin = OriginCtor.from(TRUSTED_GAS_ORIGIN);
+      if (!candidateOrigin.isSameOrigin(trustedOrigin)) return false;
+    } else {
+      const parsed = new URL(trimmed);
+      const trusted = new URL(TRUSTED_GAS_ORIGIN);
+      if (parsed.origin === 'null' || parsed.origin !== trusted.origin) return false;
+    }
+    const parsedPath = new URL(trimmed).pathname;
+    return parsedPath.startsWith('/macros/s/') && parsedPath.endsWith('/exec');
+  } catch {
+    return false;
+  }
 }
 
 export function getAppsScriptUrl(): string {
-  return localStorage.getItem(STORAGE_KEY_APPS_SCRIPT_URL) || DEFAULT_APPS_SCRIPT_URL;
+  const saved = (localStorage.getItem(STORAGE_KEY_APPS_SCRIPT_URL) || '').trim();
+  return isValidAppsScriptUrl(saved) ? saved : '';
 }
 
 export function setAppsScriptUrl(url: string): void {
-  localStorage.setItem(STORAGE_KEY_APPS_SCRIPT_URL, url.trim());
+  const trimmed = url.trim();
+  if (!trimmed) {
+    localStorage.removeItem(STORAGE_KEY_APPS_SCRIPT_URL);
+    return;
+  }
+  if (isValidAppsScriptUrl(trimmed)) {
+    localStorage.setItem(STORAGE_KEY_APPS_SCRIPT_URL, trimmed);
+  }
+}
+
+export function getApiKey(): string {
+  return (localStorage.getItem(STORAGE_KEY_API_KEY) || '').trim();
+}
+
+export function setApiKey(key: string): void {
+  const trimmed = key.trim();
+  if (!trimmed) {
+    localStorage.removeItem(STORAGE_KEY_API_KEY);
+  } else {
+    localStorage.setItem(STORAGE_KEY_API_KEY, trimmed);
+  }
+}
+
+export function getProfileName(): string {
+  return (localStorage.getItem(STORAGE_KEY_PROFILE_NAME) || '').trim();
+}
+
+export function setProfileName(name: string): void {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    localStorage.removeItem(STORAGE_KEY_PROFILE_NAME);
+  } else {
+    localStorage.setItem(STORAGE_KEY_PROFILE_NAME, trimmed);
+  }
+}
+
+export function getSheetMeta(): { sheetName?: string; sheetUrl?: string } {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_SHEET_META);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSheetMeta(sheetName?: string, sheetUrl?: string): void {
+  if (!sheetName && !sheetUrl) return;
+  localStorage.setItem(STORAGE_KEY_SHEET_META, JSON.stringify({ sheetName, sheetUrl }));
+}
+
+function toBase64Url(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function fromBase64Url(b64url: string): string {
+  const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
+  const binary = atob(b64 + pad);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+export function buildMagicPairingLink(
+  gasUrl: string,
+  apiKey: string,
+  profileName?: string
+): string | null {
+  if (!isValidAppsScriptUrl(gasUrl)) return null;
+  const payload: { u: string; k?: string; n?: string } = { u: gasUrl.trim() };
+  if (apiKey.trim()) payload.k = apiKey.trim();
+  if (profileName?.trim()) payload.n = profileName.trim();
+  const encoded = toBase64Url(JSON.stringify(payload));
+  return `${window.location.origin}${window.location.pathname}#pair=${encoded}`;
+}
+
+export function processMagicPairingLink(): { paired: boolean; profileName?: string; error?: string } {
+  // Purge legacy unauthenticated cache/default keys on every startup
+  for (const legacyKey of LEGACY_KEYS_TO_PURGE) {
+    localStorage.removeItem(legacyKey);
+  }
+
+  const hash = window.location.hash || '';
+  if (!hash.startsWith('#pair=')) {
+    return { paired: false };
+  }
+
+  const encoded = hash.slice('#pair='.length).trim();
+  // Immediately strip sensitive pairing payload from browser address bar & history
+  window.history.replaceState(null, '', window.location.pathname + window.location.search);
+
+  try {
+    const parsed = JSON.parse(fromBase64Url(encoded)) as { u?: string; k?: string; n?: string };
+    if (!parsed.u || !isValidAppsScriptUrl(parsed.u)) {
+      return { paired: false, error: 'Lien d’appairage invalide (URL Google Apps Script non reconnue).' };
+    }
+    setAppsScriptUrl(parsed.u);
+    setApiKey(parsed.k || '');
+    setProfileName(parsed.n || '');
+    localStorage.removeItem(STORAGE_KEY_SHEETS_CACHE);
+    localStorage.removeItem(STORAGE_KEY_SHEET_META);
+    return { paired: true, profileName: parsed.n || 'Cloud' };
+  } catch {
+    return { paired: false, error: 'Lien d’appairage corrompu ou illisible.' };
+  }
+}
+
+export function disconnectCloudAccount(): void {
+  localStorage.removeItem(STORAGE_KEY_APPS_SCRIPT_URL);
+  localStorage.removeItem(STORAGE_KEY_API_KEY);
+  localStorage.removeItem(STORAGE_KEY_PROFILE_NAME);
+  localStorage.removeItem(STORAGE_KEY_SHEET_META);
+  localStorage.removeItem(STORAGE_KEY_SHEETS_CACHE);
+  localStorage.removeItem(STORAGE_KEY_OFFLINE_QUEUE);
+  localStorage.removeItem(STORAGE_KEY_ACTIVE_SESSION);
 }
 
 export function parseRestSeconds(restStr: string): number {
@@ -75,11 +224,11 @@ export function normalizeExerciseKey(name: string): string {
   return n.replace(/[^a-z0-9]+/g, '_');
 }
 
-export function applyOfflineQueueToRawSheets(
-  rawSheets: Record<string, string[][]>
+export function applyOperationsToRawSheets(
+  rawSheets: Record<string, string[][]>,
+  ops: BatchOperation[]
 ): Record<string, string[][]> {
-  const queue = getOfflineQueue();
-  if (queue.length === 0) return rawSheets;
+  if (ops.length === 0) return rawSheets;
 
   const cloned: Record<string, string[][]> = {
     ...rawSheets,
@@ -87,7 +236,7 @@ export function applyOfflineQueueToRawSheets(
   };
   const journal = cloned["Journal d'entraînement"];
 
-  for (const op of queue) {
+  for (const op of ops) {
     if (op.op === 'write' && Array.isArray(op.data) && op.data[0]) {
       // e.g. "'Journal d'entraînement'!B101:M101"
       const m = op.range.match(/!B(\d+):M(\d+)/i);
@@ -127,6 +276,24 @@ export function applyOfflineQueueToRawSheets(
   }
 
   return cloned;
+}
+
+export function applyOfflineQueueToRawSheets(
+  rawSheets: Record<string, string[][]>
+): Record<string, string[][]> {
+  return applyOperationsToRawSheets(rawSheets, getOfflineQueue());
+}
+
+function loadLocalGuestRawSheets(): Record<string, string[][]> {
+  const saved = localStorage.getItem(STORAGE_KEY_LOCAL_GUEST_SHEETS);
+  if (saved) {
+    try {
+      return JSON.parse(saved);
+    } catch {
+      // Ignore corrupt local guest data
+    }
+  }
+  return initialSeed as Record<string, string[][]>;
 }
 
 export function parseSheetsPayload(rawSheets: Record<string, string[][]>, source: ParsedSheetData['source']): ParsedSheetData {
@@ -349,7 +516,7 @@ export function parseSheetsPayload(rawSheets: Record<string, string[][]>, source
 }
 
 export async function fetchSheetData(): Promise<ParsedSheetData> {
-  // 1. Try local Antigravity gsheets plugin bridge (/api/gsheets)
+  // 1. Try local Antigravity gsheets plugin bridge (/api/gsheets) in local dev only
   try {
     const res = await fetch('/api/gsheets', { method: 'GET' });
     if (res.ok) {
@@ -360,37 +527,61 @@ export async function fetchSheetData(): Promise<ParsedSheetData> {
       }
     }
   } catch {
-    // Bridge not reachable (e.g. static mobile hosting), fallback to Apps Script or cache
+    // Bridge not reachable (e.g. static mobile hosting), fallback to Apps Script or guest mode
   }
 
-  // 2. Try Google Apps Script Web App URL if configured
+  // 2. Try Google Apps Script Web App URL if configured on this device
   const gasUrl = getAppsScriptUrl();
+  const apiKey = getApiKey();
+  let authError: string | undefined;
+
   if (gasUrl) {
     try {
-      const res = await fetch(gasUrl, { method: 'GET' });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.ok && json.sheets) {
-          localStorage.setItem(STORAGE_KEY_SHEETS_CACHE, JSON.stringify(json.sheets));
-          return parseSheetsPayload(json.sheets, 'apps-script');
-        }
+      // Prefer POST so the secret API key is never placed in URL query strings
+      let res = await fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'read', key: apiKey }),
+      });
+
+      let json = res.ok ? await res.json() : null;
+
+      // Backward compatibility if user's Apps Script doesn't yet handle action='read' in doPost
+      if (json && !json.ok && String(json.error || '').includes('Action non reconnue')) {
+        const getUrl = apiKey ? `${gasUrl}?key=${encodeURIComponent(apiKey)}` : gasUrl;
+        res = await fetch(getUrl, { method: 'GET' });
+        json = res.ok ? await res.json() : null;
+      }
+
+      if (json && json.ok && json.sheets) {
+        localStorage.setItem(STORAGE_KEY_SHEETS_CACHE, JSON.stringify(json.sheets));
+        saveSheetMeta(json.sheetName, json.sheetUrl);
+        return parseSheetsPayload(json.sheets, 'apps-script');
+      } else if (json && !json.ok && String(json.error || '').toLowerCase().includes('unauthorized')) {
+        authError = json.error || 'Clé secrète API invalide.';
       }
     } catch {
-      // Offline or error
+      // Offline or error: fall back to cached cloud sheet below
     }
+
+    const cached = localStorage.getItem(STORAGE_KEY_SHEETS_CACHE);
+    if (cached) {
+      try {
+        const parsed = parseSheetsPayload(JSON.parse(cached), 'local-cache');
+        if (authError) parsed.authError = authError;
+        return parsed;
+      } catch {
+        // Ignore corrupt cache
+      }
+    }
+
+    const fallback = parseSheetsPayload(initialSeed as Record<string, string[][]>, 'local-cache');
+    if (authError) fallback.authError = authError;
+    return fallback;
   }
 
-  // 3. Fallback to LocalStorage cache or bundled seed from Google Sheet
-  const cached = localStorage.getItem(STORAGE_KEY_SHEETS_CACHE);
-  if (cached) {
-    try {
-      return parseSheetsPayload(JSON.parse(cached), 'local-cache');
-    } catch {
-      // Ignore corrupt cache
-    }
-  }
-
-  return parseSheetsPayload(initialSeed as Record<string, string[][]>, 'local-cache');
+  // 3. Neutral Local / Guest mode (no personal cloud sheet configured on this device)
+  return parseSheetsPayload(loadLocalGuestRawSheets(), 'local-guest');
 }
 
 export function getLastExerciseHistory(
@@ -831,19 +1022,28 @@ export async function syncBatchOperations(
     // Fallback to Apps Script
   }
 
-  // 2. Try Google Apps Script Web App URL
+  // 2. Try Google Apps Script Web App URL if configured
   const gasUrl = getAppsScriptUrl();
+  const apiKey = getApiKey();
   if (gasUrl) {
     try {
       const res = await fetch(gasUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'batchWrite', operations }),
+        body: JSON.stringify({ action: 'batchWrite', key: apiKey, operations }),
       });
       if (res.ok) {
         const json = await res.json();
         if (json.ok) {
           return { ok: true, via: 'Google Apps Script' };
+        }
+        if (String(json.error || '').toLowerCase().includes('unauthorized')) {
+          enqueueOfflineOperations(operations);
+          return {
+            ok: false,
+            via: 'Accès refusé',
+            error: json.error || 'Clé secrète API invalide. Vérifie tes paramètres.',
+          };
         }
       }
     } catch (err: any) {
@@ -855,14 +1055,23 @@ export async function syncBatchOperations(
         error: err?.message || 'Réseau indisponible, sauvegardé en local',
       };
     }
+
+    // Cloud configured but failed: queue offline so nothing is lost
+    enqueueOfflineOperations(operations);
+    return {
+      ok: false,
+      via: 'Cache Local (en attente de synchro)',
+      error: 'Sauvegardé sur le téléphone (prêt à synchroniser)',
+    };
   }
 
-  // 3. Save in offline queue so nothing is lost
-  enqueueOfflineOperations(operations);
+  // 3. Guest / Local-only mode: save directly in device localStorage without cloud sync nag
+  const currentLocal = loadLocalGuestRawSheets();
+  const updatedLocal = applyOperationsToRawSheets(currentLocal, operations);
+  localStorage.setItem(STORAGE_KEY_LOCAL_GUEST_SHEETS, JSON.stringify(updatedLocal));
   return {
-    ok: false,
-    via: 'Cache Local (en attente de synchro)',
-    error: 'Sauvegardé sur le téléphone (prêt à synchroniser)',
+    ok: true,
+    via: 'Mémoire locale du téléphone',
   };
 }
 

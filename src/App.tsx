@@ -18,9 +18,12 @@ import {
   buildWorkoutSession,
   clearOfflineQueue,
   fetchSheetData,
+  getAppsScriptUrl,
   getOfflineQueue,
+  getProfileName,
   loadActiveSessionDraft,
   ParsedSheetData,
+  processMagicPairingLink,
   saveActiveSessionDraft,
   syncBatchOperations,
 } from './services/sheetsApi';
@@ -69,7 +72,9 @@ export const App: React.FC = () => {
         data.source === 'gsheets-plugin'
           ? 'Sheet Live'
           : data.source === 'apps-script'
-          ? 'Cloud Live'
+          ? 'Cloud Sécurisé'
+          : data.source === 'local-guest'
+          ? 'Mode Local'
           : 'Hors-ligne'
       );
     } finally {
@@ -78,6 +83,12 @@ export const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const pairResult = processMagicPairingLink();
+    if (pairResult.paired) {
+      showToast(`🔐 Espace sécurisé connecté (${pairResult.profileName || 'Cloud'}) !`);
+    } else if (pairResult.error) {
+      showToast(pairResult.error);
+    }
     loadData();
   }, [loadData]);
 
@@ -109,8 +120,8 @@ export const App: React.FC = () => {
   };
 
   const getLastSheetRowNumber = () => {
-    if (!sheetData || sheetData.journalRows.length === 0) return 125;
-    return Math.max(...sheetData.journalRows.map((r) => r.sheetRowNumber || 125));
+    if (!sheetData || sheetData.journalRows.length === 0) return 4;
+    return Math.max(...sheetData.journalRows.map((r) => r.sheetRowNumber || 4));
   };
 
   const handleUpdateActiveSession = async (
@@ -334,8 +345,10 @@ export const App: React.FC = () => {
     );
   }
 
-  const offlineCount = getOfflineQueue().length;
+  const hasCloudConfigured = Boolean(getAppsScriptUrl());
+  const offlineCount = hasCloudConfigured ? getOfflineQueue().length : 0;
   const savedDraft = loadActiveSessionDraft();
+  const profileName = getProfileName();
 
   return (
     <div className="app-shell">
@@ -347,14 +360,24 @@ export const App: React.FC = () => {
           </div>
           <div>
             <div className="brand-name">IronPulse</div>
-            <div className="brand-sub">Suivi &amp; Recomposition · Nicolas</div>
+            <div className="brand-sub">
+              {profileName
+                ? `Suivi & Recomposition · ${profileName}`
+                : sheetData?.source === 'apps-script'
+                ? 'Google Sheet Sécurisé'
+                : 'Mode Local · Espace Personnel'}
+            </div>
           </div>
         </div>
 
         <div className="topbar-actions">
           <button
             type="button"
-            className={`conn-badge ${sheetData?.source === 'gsheets-plugin' ? 'live' : ''}`}
+            className={`conn-badge ${
+              sheetData?.source === 'gsheets-plugin' || sheetData?.source === 'apps-script'
+                ? 'live'
+                : ''
+            }`}
             onClick={() => setIsSettingsOpen(true)}
           >
             <Cloud size={14} />
@@ -362,15 +385,17 @@ export const App: React.FC = () => {
               {sheetData?.source === 'gsheets-plugin'
                 ? 'Sheet Connecté'
                 : sheetData?.source === 'apps-script'
-                ? 'Apps Script'
-                : 'Mode Local'}
+                ? 'Cloud Sécurisé'
+                : sheetData?.source === 'local-guest'
+                ? 'Mode Local'
+                : 'Hors-ligne'}
             </span>
           </button>
           <button
             type="button"
             className="icon-ghost-btn"
             onClick={loadData}
-            aria-label="Rafraîchir les données du Google Sheet"
+            aria-label="Rafraîchir les données"
           >
             <RefreshCw size={18} className={isLoading ? 'spin' : ''} />
           </button>
@@ -386,6 +411,34 @@ export const App: React.FC = () => {
       </header>
 
       <main className="app-content">
+        {sheetData?.authError && (
+          <section
+            className="resume-banner"
+            style={{
+              marginBottom: '1rem',
+              borderColor: 'rgba(244, 63, 94, 0.5)',
+              background: 'rgba(244, 63, 94, 0.12)',
+            }}
+          >
+            <div>
+              <span className="resume-tag" style={{ color: '#fda4af' }}>
+                Accès Cloud bloqué
+              </span>
+              <h3>Clé secrète API invalide ou manquante</h3>
+              <p>{sheetData.authError}</p>
+            </div>
+            <div className="resume-actions">
+              <button
+                type="button"
+                className="primary-play-btn"
+                onClick={() => setIsSettingsOpen(true)}
+              >
+                <Settings size={15} /> Configurer
+              </button>
+            </div>
+          </section>
+        )}
+
         {offlineCount > 0 && (
           <section className="resume-banner" style={{ marginBottom: '1rem' }}>
             <div>
@@ -637,11 +690,15 @@ export const App: React.FC = () => {
 
       <SettingsModal
         isOpen={isSettingsOpen}
-        dataSource={sheetData?.source || 'local-cache'}
+        dataSource={sheetData?.source || 'local-guest'}
         offlineQueueCount={offlineCount}
         onClose={() => setIsSettingsOpen(false)}
         onRefreshSheet={loadData}
         onFlushOfflineQueue={handleFlushOfflineQueue}
+        onDisconnected={() => {
+          showToast('Appareil déconnecté — retour en Mode Local privé.');
+          loadData();
+        }}
       />
 
       <WorkoutSummaryModal

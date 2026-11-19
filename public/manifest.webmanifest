@@ -1,7 +1,7 @@
 {
-  "name": "IronPulse — Suivi Entraînement Nicolas",
+  "name": "IronPulse — Suivi Entraînement",
   "short_name": "IronPulse",
-  "description": "Application mobile ludique connectée au Google Sheet Suivi Entraînement & Recomposition",
+  "description": "Application mobile de suivi musculation connectée à votre Google Sheet ou en mode local",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#0b0f19",

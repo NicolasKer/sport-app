@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const execAsync = promisify(exec);
-const SPREADSHEET_ID = '1WM517we-EmWXST9vEWghjgElri4ig4CNgOs1ANyC4Ak';
+const SPREADSHEET_ID = process.env.GSHEETS_SPREADSHEET_ID || '';
 
 function parseReadAllOutput(stdout: string) {
   const parts = stdout.split(/--- (.+?) ---\r?\n/);
@@ -31,6 +31,11 @@ export default defineConfig({
       configureServer(server) {
         server.middlewares.use('/api/gsheets', async (req, res) => {
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          if (!SPREADSHEET_ID) {
+            res.statusCode = 404;
+            res.end(JSON.stringify({ ok: false, error: 'Local gsheets bridge not configured' }));
+            return;
+          }
           try {
             if (req.method === 'GET') {
               const { stdout } = await execAsync(
@@ -38,9 +43,6 @@ export default defineConfig({
                 { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
               );
               const sheets = parseReadAllOutput(stdout);
-              // Update local seed snapshot as well
-              const seedPath = path.resolve(process.cwd(), 'src/data/initialSheetData.json');
-              fs.writeFileSync(seedPath, JSON.stringify(sheets, null, 2), 'utf8');
               res.end(JSON.stringify({ ok: true, source: 'gsheets-plugin', sheets }));
               return;
             }
