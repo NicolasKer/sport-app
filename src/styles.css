@@ -34,6 +34,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Inter, sans-serif;
   line-height: 1.45;
   min-height: 100dvh;
+  overflow-x: clip;
 }
 
 /* Canonical visually-hidden recipe from modern-web-guidance (forms) */
@@ -95,6 +96,7 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   padding-bottom: 84px;
+  overflow-x: clip;
 }
 
 .app-topbar {
@@ -205,6 +207,7 @@ button:focus-visible {
 .app-content {
   flex: 1;
   padding: 1rem;
+  min-width: 0;
 }
 
 .section-heading {
@@ -1394,14 +1397,23 @@ button:focus-visible {
 }
 
 /* ==================== HISTORY & PR VIEW ==================== */
+.history-view,
+.pr-section,
+.sessions-history-section {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .pr-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.65rem;
   margin-bottom: 1.5rem;
 }
 
 .pr-card {
+  min-width: 0;
+  overflow: hidden;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
@@ -1476,6 +1488,8 @@ button:focus-visible {
 }
 
 .history-session-card {
+  min-width: 0;
+  max-width: 100%;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -1484,9 +1498,19 @@ button:focus-visible {
 
 .history-session-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
+  gap: 0.5rem;
   margin-bottom: 0.65rem;
+}
+
+.history-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-left: auto;
 }
 
 .history-date {
@@ -1516,6 +1540,7 @@ button:focus-visible {
 
 .history-paliers-strip {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
   padding: 0.45rem 0.65rem;
@@ -1524,6 +1549,7 @@ button:focus-visible {
   color: #6ee7b7;
   font-size: 0.78rem;
   margin-bottom: 0.65rem;
+  word-break: break-word;
 }
 
 .history-ex-rows {
@@ -1532,15 +1558,17 @@ button:focus-visible {
   gap: 0.38rem;
   border-top: 1px solid var(--border-subtle);
   padding-top: 0.65rem;
+  min-width: 0;
 }
 
 .history-ex-line {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.5rem;
   font-size: 0.8rem;
-  padding: 0.2rem 0;
+  padding: 0.25rem 0;
+  min-width: 0;
 }
 
 .history-ex-title {
@@ -1549,14 +1577,19 @@ button:focus-visible {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 48%;
+  flex: 0 1 44%;
+  min-width: 0;
+  max-width: 46%;
 }
 
 .history-ex-badges {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 0.28rem;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
 }
 
 .history-set-chip {
@@ -1566,7 +1599,8 @@ button:focus-visible {
   border-radius: 6px;
   background: var(--bg-surface);
   color: var(--text-secondary);
-  white-space: nowrap;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 /* ==================== MODAL & TOAST ==================== */

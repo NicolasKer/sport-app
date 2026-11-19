@@ -17,6 +17,7 @@ const STORAGE_KEY_LOCAL_GUEST_SHEETS = 'ironpulse_local_guest_sheets_v1';
 const STORAGE_KEY_CUSTOM_PROGRAM_OVERRIDE = 'ironpulse_custom_program_override_v1';
 const STORAGE_KEY_BODY_WEIGHT = 'ironpulse_bodyweight_v1';
 const STORAGE_KEY_SOUND_ENABLED = 'ironpulse_sound_enabled_v1';
+const STORAGE_KEY_SESSION_DURATIONS = 'ironpulse_session_durations_v1';
 const STORAGE_KEY_APPS_SCRIPT_URL = 'ironpulse_apps_script_url_v3';
 const STORAGE_KEY_API_KEY = 'ironpulse_api_key_v1';
 const STORAGE_KEY_PROFILE_NAME = 'ironpulse_profile_name_v1';
@@ -1476,5 +1477,29 @@ export function exportJournalCsv(journalRows: JournalRow[]): void {
     type: 'text/csv;charset=utf-8;',
   });
   triggerFileDownload(blob, `ironpulse-journal-${dateTag}.csv`);
+}
+
+export function saveSessionDuration(date: string, sessionName: string, durationMinutes: number): void {
+  if (!date || !sessionName || durationMinutes <= 0) return;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_SESSION_DURATIONS);
+    const map: Record<string, number> = raw ? JSON.parse(raw) : {};
+    map[`${date}__${sessionName}`] = Math.max(1, Math.round(durationMinutes));
+    localStorage.setItem(STORAGE_KEY_SESSION_DURATIONS, JSON.stringify(map));
+  } catch {
+    // Ignore storage quota issues
+  }
+}
+
+export function getSessionDuration(date: string, sessionName: string): number | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_SESSION_DURATIONS);
+    if (!raw) return null;
+    const map: Record<string, number> = JSON.parse(raw);
+    const val = map[`${date}__${sessionName}`];
+    return typeof val === 'number' && val > 0 ? val : null;
+  } catch {
+    return null;
+  }
 }
 

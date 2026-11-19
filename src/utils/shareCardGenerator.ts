@@ -1,4 +1,4 @@
-import { WorkoutSummaryData } from '../components/WorkoutSummaryModal';
+import { formatWorkoutDuration, WorkoutSummaryData } from '../components/WorkoutSummaryModal';
 
 function roundRect(
   ctx: CanvasRenderingContext2D,
@@ -155,10 +155,18 @@ export async function renderWorkoutShareCard(
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = '700 24px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.fillText('DURÉE EFFORT', rightX + 36, 696);
+  const hasRealDuration =
+    summary.durationMinutes !== null && summary.durationMinutes !== undefined;
+  ctx.fillText(hasRealDuration ? 'DURÉE EFFORT' : 'EXERCICES', rightX + 36, 696);
   ctx.fillStyle = '#f8fafc';
   ctx.font = '900 62px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.fillText(`${Math.max(1, summary.durationMinutes)} min`, rightX + 36, 774);
+  ctx.fillText(
+    hasRealDuration
+      ? formatWorkoutDuration(summary.durationMinutes as number)
+      : `${summary.exercisesCount || '—'} exos`,
+    rightX + 36,
+    774
+  );
 
   // Records & Paliers section
   let cursorY = 855;

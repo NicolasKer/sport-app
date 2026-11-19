@@ -33,6 +33,7 @@ import {
   processMagicPairingLink,
   saveActiveSessionDraft,
   saveProgramTemplates,
+  saveSessionDuration,
   syncBatchOperations,
 } from './services/sheetsApi';
 import {
@@ -385,11 +386,16 @@ export const App: React.FC = () => {
 
     saveActiveSessionDraft(null);
     setActiveSession(null);
+    saveSessionDuration(activeSession.date, activeSession.sessionName, durationMinutes);
+    const exercisesCount = sessionToSync.exercises.filter((ex) =>
+      ex.sets.some((s) => s.completed)
+    ).length;
 
     setWorkoutSummary({
       sessionName: activeSession.sessionName,
       date: activeSession.date,
       durationMinutes,
+      exercisesCount,
       totalSets,
       totalTonnage: Math.round(totalTonnage * 10) / 10,
       previousSessionTonnage:

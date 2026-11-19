@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Award, Calendar, Edit3, Flame, LineChart, Share2, Trash2, TrendingUp, Trophy, X } from 'lucide-react';
 import { BodyWeightEntry, JournalRow, ProgramTemplate } from '../types/workout';
-import { normalizeExerciseKey } from '../services/sheetsApi';
+import { getSessionDuration, normalizeExerciseKey } from '../services/sheetsApi';
 import { ConsistencyCalendar } from './ConsistencyCalendar';
 import { BodyWeightTracker } from './BodyWeightTracker';
 import { shareOrDownloadRecapCard } from '../utils/shareCardGenerator';
@@ -215,7 +215,8 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
         {
           sessionName: sess.sessionName,
           date: sess.date,
-          durationMinutes: 45,
+          durationMinutes: getSessionDuration(sess.date, sess.sessionName),
+          exercisesCount: sess.exercises.size,
           totalSets: sess.totalSets,
           totalTonnage: Math.round(sess.totalTonnage * 10) / 10,
           previousSessionTonnage: null,
@@ -394,7 +395,7 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
                     </span>
                     <h3>{sess.sessionName}</h3>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <div className="history-header-actions">
                     <div className="history-tonnage-badge">
                       <Flame size={14} />
                       <span>{sess.totalTonnage.toLocaleString('fr-FR')} kg</span>

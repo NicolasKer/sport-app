@@ -14,7 +14,8 @@ import { shareOrDownloadRecapCard } from '../utils/shareCardGenerator';
 export interface WorkoutSummaryData {
   sessionName: string;
   date: string;
-  durationMinutes: number;
+  durationMinutes: number | null;
+  exercisesCount?: number;
   totalSets: number;
   totalTonnage: number;
   previousSessionTonnage: number | null;
@@ -22,6 +23,16 @@ export interface WorkoutSummaryData {
   newRecords: { exercise: string; weightKg: number; reps: number }[];
   syncedOk: boolean;
   syncModeLabel?: string;
+}
+
+export function formatWorkoutDuration(mins: number): string {
+  const safe = Math.max(1, Math.round(mins));
+  if (safe >= 60) {
+    const h = Math.floor(safe / 60);
+    const m = safe % 60;
+    return `${h}h ${String(m).padStart(2, '0')}`;
+  }
+  return `${safe} min`;
 }
 
 interface WorkoutSummaryModalProps {
@@ -87,9 +98,13 @@ export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({
         <div className="summary-stats-grid">
           <div className="summary-stat-card">
             <div className="summary-stat-label">
-              <Clock size={14} /> Durée
+              <Clock size={14} /> {summary.durationMinutes !== null ? 'Durée' : 'Exercices'}
             </div>
-            <div className="summary-stat-val">{Math.max(1, summary.durationMinutes)} min</div>
+            <div className="summary-stat-val">
+              {summary.durationMinutes !== null
+                ? formatWorkoutDuration(summary.durationMinutes)
+                : `${summary.exercisesCount || '—'} exos`}
+            </div>
             <div className="summary-stat-meta">{summary.totalSets} séries validées</div>
           </div>
 
