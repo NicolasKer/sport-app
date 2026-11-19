@@ -4,6 +4,8 @@ import {
   ActiveSetState,
   ActiveWorkoutSession,
   BatchOperation,
+  BodyWeightEntry,
+  ExportBackupPayload,
   Feeling,
   JournalRow,
   ProgramExercise,
@@ -12,6 +14,9 @@ import {
 
 const STORAGE_KEY_SHEETS_CACHE = 'ironpulse_sheets_cache_v4';
 const STORAGE_KEY_LOCAL_GUEST_SHEETS = 'ironpulse_local_guest_sheets_v1';
+const STORAGE_KEY_CUSTOM_PROGRAM_OVERRIDE = 'ironpulse_custom_program_override_v1';
+const STORAGE_KEY_BODY_WEIGHT = 'ironpulse_bodyweight_v1';
+const STORAGE_KEY_SOUND_ENABLED = 'ironpulse_sound_enabled_v1';
 const STORAGE_KEY_APPS_SCRIPT_URL = 'ironpulse_apps_script_url_v3';
 const STORAGE_KEY_API_KEY = 'ironpulse_api_key_v1';
 const STORAGE_KEY_PROFILE_NAME = 'ironpulse_profile_name_v1';
@@ -181,8 +186,17 @@ export function disconnectCloudAccount(): void {
   localStorage.removeItem(STORAGE_KEY_PROFILE_NAME);
   localStorage.removeItem(STORAGE_KEY_SHEET_META);
   localStorage.removeItem(STORAGE_KEY_SHEETS_CACHE);
+  localStorage.removeItem(STORAGE_KEY_CUSTOM_PROGRAM_OVERRIDE);
   localStorage.removeItem(STORAGE_KEY_OFFLINE_QUEUE);
   localStorage.removeItem(STORAGE_KEY_ACTIVE_SESSION);
+}
+
+export function getSoundEnabled(): boolean {
+  return localStorage.getItem(STORAGE_KEY_SOUND_ENABLED) !== 'false';
+}
+
+export function setSoundEnabled(enabled: boolean): void {
+  localStorage.setItem(STORAGE_KEY_SOUND_ENABLED, enabled ? 'true' : 'false');
 }
 
 export function parseRestSeconds(restStr: string): number {
@@ -308,21 +322,20 @@ export function parseSheetsPayload(rawSheets: Record<string, string[][]>, source
     if (!row || !row[1] || !row[2]) continue;
     const rawSessionTitle = String(row[1]).trim();
     const rawExName = String(row[2]).trim();
-    const setsRepsRaw = String(row[3] || '').trim();
-    const rir = String(row[4] || '').trim();
+    const setsRepsRaw = String(row[3] || '').trim().replace(/^'/, '');
+    const rir = String(row[4] || '').trim().replace(/^'/, '');
     const restLabel = String(row[5] || '').trim();
     const instructions = String(row[6] || '').trim();
 
-    let shortSessionName = rawSessionTitle;
-    if (rawSessionTitle.toLowerCase().includes('upper')) shortSessionName = 'Upper';
-    else if (rawSessionTitle.toLowerCase().includes('lower')) shortSessionName = 'Lower + Cardio';
-    else if (rawSessionTitle.toLowerCase().includes('full body')) shortSessionName = 'Full Body';
+    const dashParts = rawSessionTitle.split(' - ');
+    const shortSessionName =
+      dashParts.length > 1 ? dashParts.slice(1).join(' - ').trim() : rawSessionTitle;
 
-    const prefixMatch = rawExName.match(/^(\d+[AB]?)\.\s*(.+)$/i);
+    const prefixMatch = rawExName.match(/^(\d+[A-Z]?)\.\s*(.+)$/i);
     const codePrefix = prefixMatch ? prefixMatch[1].toUpperCase() : String(programExercises.length + 1);
     const cleanName = prefixMatch ? prefixMatch[2].trim() : rawExName;
 
-    const supersetMatch = codePrefix.match(/^(\d+)[AB]$/i);
+    const supersetMatch = codePrefix.match(/^(\d+)[A-Z]$/i);
     const supersetGroup = supersetMatch ? supersetMatch[1] : null;
 
     // Parse "3x6-8" or "4x10-15" or "25-30 min"
@@ -388,12 +401,13 @@ export function parseSheetsPayload(rawSheets: Record<string, string[][]>, source
     if (!templateMap.has(ex.shortSessionName)) {
       const parts = ex.rawSessionTitle.split(' - ');
       const dayBadge = parts.length > 1 ? parts[0].trim() : ex.shortSessionName;
+      const lowerName = ex.shortSessionName.toLowerCase();
       const icon =
-        ex.shortSessionName === 'Upper'
-          ? 'upper'
-          : ex.shortSessionName.includes('Lower')
+        lowerName.includes('lower') || lowerName.includes('jambe') || lowerName.includes('leg')
           ? 'lower'
-          : 'full';
+          : lowerName.includes('full') || lowerName.includes('corps')
+          ? 'full'
+          : 'upper';
       templateMap.set(ex.shortSessionName, {
         id: ex.shortSessionName,
         fullTitle: ex.rawSessionTitle,
@@ -405,9 +419,14 @@ export function parseSheetsPayload(rawSheets: Record<string, string[][]>, source
     templateMap.get(ex.shortSessionName)!.exercises.push(ex);
   }
 
-  // Ensure Full Body also has its Finisher Cardio if present in Journal
+  // Fallback Finisher Cardio on legacy cloud Full Body sheet if no custom override exists
   const fullBodyTpl = templateMap.get('Full Body');
-  if (fullBodyTpl && !fullBodyTpl.exercises.some((e) => e.isCardio)) {
+  if (
+    fullBodyTpl &&
+    source !== 'local-guest' &&
+    !localStorage.getItem(STORAGE_KEY_CUSTOM_PROGRAM_OVERRIDE) &&
+    !fullBodyTpl.exercises.some((e) => e.isCardio)
+  ) {
     fullBodyTpl.exercises.push({
       rawSessionTitle: fullBodyTpl.fullTitle,
       shortSessionName: 'Full Body',
@@ -515,6 +534,20 @@ export function parseSheetsPayload(rawSheets: Record<string, string[][]>, source
   };
 }
 
+function applyProgramOverrideIfPresent(rawSheets: Record<string, string[][]>): Record<string, string[][]> {
+  const overrideRaw = localStorage.getItem(STORAGE_KEY_CUSTOM_PROGRAM_OVERRIDE);
+  if (!overrideRaw) return rawSheets;
+  try {
+    const parsedOverride = JSON.parse(overrideRaw) as string[][];
+    if (Array.isArray(parsedOverride) && parsedOverride.length > 4) {
+      return { ...rawSheets, 'Référence Programme': parsedOverride };
+    }
+  } catch {
+    // Ignore corrupt override
+  }
+  return rawSheets;
+}
+
 export async function fetchSheetData(): Promise<ParsedSheetData> {
   // 1. Try local Antigravity gsheets plugin bridge (/api/gsheets) in local dev only
   try {
@@ -523,7 +556,7 @@ export async function fetchSheetData(): Promise<ParsedSheetData> {
       const json = await res.json();
       if (json.ok && json.sheets) {
         localStorage.setItem(STORAGE_KEY_SHEETS_CACHE, JSON.stringify(json.sheets));
-        return parseSheetsPayload(json.sheets, 'gsheets-plugin');
+        return parseSheetsPayload(applyProgramOverrideIfPresent(json.sheets), 'gsheets-plugin');
       }
     }
   } catch {
@@ -556,7 +589,10 @@ export async function fetchSheetData(): Promise<ParsedSheetData> {
       if (json && json.ok && json.sheets) {
         localStorage.setItem(STORAGE_KEY_SHEETS_CACHE, JSON.stringify(json.sheets));
         saveSheetMeta(json.sheetName, json.sheetUrl);
-        return parseSheetsPayload(json.sheets, 'apps-script');
+        if (Array.isArray(json.sheets['Suivi Poids'])) {
+          mergeAndSaveBodyWeightFromSheet(json.sheets['Suivi Poids']);
+        }
+        return parseSheetsPayload(applyProgramOverrideIfPresent(json.sheets), 'apps-script');
       } else if (json && !json.ok && String(json.error || '').toLowerCase().includes('unauthorized')) {
         authError = json.error || 'Clé secrète API invalide.';
       }
@@ -567,7 +603,10 @@ export async function fetchSheetData(): Promise<ParsedSheetData> {
     const cached = localStorage.getItem(STORAGE_KEY_SHEETS_CACHE);
     if (cached) {
       try {
-        const parsed = parseSheetsPayload(JSON.parse(cached), 'local-cache');
+        const parsed = parseSheetsPayload(
+          applyProgramOverrideIfPresent(JSON.parse(cached)),
+          'local-cache'
+        );
         if (authError) parsed.authError = authError;
         return parsed;
       } catch {
@@ -575,7 +614,10 @@ export async function fetchSheetData(): Promise<ParsedSheetData> {
       }
     }
 
-    const fallback = parseSheetsPayload(initialSeed as Record<string, string[][]>, 'local-cache');
+    const fallback = parseSheetsPayload(
+      applyProgramOverrideIfPresent(initialSeed as Record<string, string[][]>),
+      'local-cache'
+    );
     if (authError) fallback.authError = authError;
     return fallback;
   }
@@ -1143,3 +1185,296 @@ export function loadActiveSessionDraft(): ActiveWorkoutSession | null {
     return null;
   }
 }
+
+export function buildFreeWorkoutSession(
+  dateStr: string,
+  sessionName = 'Séance Libre'
+): ActiveWorkoutSession {
+  return {
+    date: dateStr,
+    sessionName: sessionName.trim() || 'Séance Libre',
+    fullTitle: sessionName.trim() || 'Séance Libre',
+    isPreCreatedInSheet: false,
+    startedAt: Date.now(),
+    exercises: [],
+  };
+}
+
+function buildProgramMatrix(templates: ProgramTemplate[], forSheet: boolean): string[][] {
+  const rows: string[][] = [];
+  for (const tpl of templates) {
+    const title = tpl.fullTitle || (tpl.dayBadge && tpl.dayBadge !== tpl.id ? `${tpl.dayBadge} - ${tpl.id}` : tpl.id);
+    tpl.exercises.forEach((ex, idx) => {
+      const prefix = (ex.codePrefix || String(idx + 1)).trim();
+      const hasPrefixAlready = /^\d+[AB]?\.\s*/i.test(ex.name);
+      const exDisplay = hasPrefixAlready ? ex.name : `${prefix}. ${ex.name}`;
+      const setsReps =
+        ex.isCardio && ex.setsCount <= 1
+          ? ex.targetReps || '20-25 min'
+          : `${Math.max(1, ex.setsCount || 1)}x${ex.targetReps || '8-12'}`;
+      const rirVal = forSheet ? safeSheetString(ex.rir || '') : ex.rir || '';
+      rows.push([
+        title,
+        exDisplay,
+        setsReps,
+        rirVal,
+        ex.restLabel || "1'30",
+        ex.instructions || '',
+      ]);
+    });
+  }
+  return rows;
+}
+
+export async function saveProgramTemplates(templates: ProgramTemplate[]): Promise<{
+  ok: boolean;
+  syncedToSheet: boolean;
+  needsScriptUpdate?: boolean;
+  error?: string;
+}> {
+  const localRows = buildProgramMatrix(templates, false);
+  const matrixWithHeaders: string[][] = [
+    [],
+    ['', 'RÉFÉRENCE PROGRAMME'],
+    [],
+    ['', 'Séance', 'Exercice', 'Séries x Reps', 'RIR', 'Repos', 'Consignes / Notes'],
+    ...localRows.map((r) => ['', ...r]),
+  ];
+
+  const gasUrl = getAppsScriptUrl();
+  if (!gasUrl) {
+    const current = loadLocalGuestRawSheets();
+    const updated = { ...current, 'Référence Programme': matrixWithHeaders };
+    localStorage.setItem(STORAGE_KEY_LOCAL_GUEST_SHEETS, JSON.stringify(updated));
+    return { ok: true, syncedToSheet: false };
+  }
+
+  // Always save override locally first so UI works immediately even offline or before script redeploy
+  localStorage.setItem(STORAGE_KEY_CUSTOM_PROGRAM_OVERRIDE, JSON.stringify(matrixWithHeaders));
+  const cached = localStorage.getItem(STORAGE_KEY_SHEETS_CACHE);
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      parsed['Référence Programme'] = matrixWithHeaders;
+      localStorage.setItem(STORAGE_KEY_SHEETS_CACHE, JSON.stringify(parsed));
+    } catch {
+      // Ignore
+    }
+  }
+
+  const sheetRows = buildProgramMatrix(templates, true);
+  try {
+    const res = await fetch(gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'saveProgram',
+        key: getApiKey(),
+        rows: sheetRows,
+      }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.ok) {
+        localStorage.removeItem(STORAGE_KEY_CUSTOM_PROGRAM_OVERRIDE);
+        return { ok: true, syncedToSheet: true };
+      }
+      if (String(json.error || '').includes('Action non reconnue')) {
+        return { ok: true, syncedToSheet: false, needsScriptUpdate: true };
+      }
+      return { ok: true, syncedToSheet: false, error: json.error };
+    }
+  } catch {
+    return { ok: true, syncedToSheet: false };
+  }
+  return { ok: true, syncedToSheet: false };
+}
+
+export function getBodyWeightEntries(): BodyWeightEntry[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_BODY_WEIGHT);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as BodyWeightEntry[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((e) => e && typeof e.date === 'string' && typeof e.weightKg === 'number' && e.weightKg > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } catch {
+    return [];
+  }
+}
+
+export function saveBodyWeightEntriesLocal(entries: BodyWeightEntry[]): BodyWeightEntry[] {
+  const byDate = new Map<string, BodyWeightEntry>();
+  for (const e of entries) {
+    if (!e.date || !e.weightKg || e.weightKg <= 0) continue;
+    byDate.set(e.date, { date: e.date, weightKg: Math.round(e.weightKg * 10) / 10, note: e.note || '' });
+  }
+  const sorted = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+  localStorage.setItem(STORAGE_KEY_BODY_WEIGHT, JSON.stringify(sorted));
+  return sorted;
+}
+
+function mergeAndSaveBodyWeightFromSheet(rawRows: string[][]): BodyWeightEntry[] {
+  const remoteEntries: BodyWeightEntry[] = [];
+  for (let i = 1; i < rawRows.length; i++) {
+    const r = rawRows[i];
+    if (!r || !r[0]) continue;
+    const date = String(r[0]).trim();
+    const w = parseFloat(String(r[1] || '').replace(',', '.'));
+    if (date && !isNaN(w) && w > 0) {
+      remoteEntries.push({ date, weightKg: Math.round(w * 10) / 10, note: String(r[2] || '').trim() });
+    }
+  }
+  if (remoteEntries.length === 0) return getBodyWeightEntries();
+  const merged = [...getBodyWeightEntries(), ...remoteEntries];
+  return saveBodyWeightEntriesLocal(merged);
+}
+
+async function syncBodyWeightToCloud(entries: BodyWeightEntry[]): Promise<boolean> {
+  const gasUrl = getAppsScriptUrl();
+  if (!gasUrl) return false;
+  try {
+    const rows = entries.map((e) => [e.date, e.weightKg, e.note || '']);
+    const res = await fetch(gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'saveBodyWeight', key: getApiKey(), rows }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return Boolean(json.ok);
+    }
+  } catch {
+    // Best-effort sync
+  }
+  return false;
+}
+
+export async function addBodyWeightEntry(entry: BodyWeightEntry): Promise<{
+  entries: BodyWeightEntry[];
+  syncedToSheet: boolean;
+}> {
+  const next = saveBodyWeightEntriesLocal([...getBodyWeightEntries(), entry]);
+  const syncedToSheet = await syncBodyWeightToCloud(next);
+  return { entries: next, syncedToSheet };
+}
+
+export async function deleteBodyWeightEntry(date: string): Promise<{
+  entries: BodyWeightEntry[];
+  syncedToSheet: boolean;
+}> {
+  const next = saveBodyWeightEntriesLocal(getBodyWeightEntries().filter((e) => e.date !== date));
+  const syncedToSheet = await syncBodyWeightToCloud(next);
+  return { entries: next, syncedToSheet };
+}
+
+function triggerFileDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export function exportBackupJson(): void {
+  const localGuestRaw = localStorage.getItem(STORAGE_KEY_LOCAL_GUEST_SHEETS);
+  const overrideRaw = localStorage.getItem(STORAGE_KEY_CUSTOM_PROGRAM_OVERRIDE);
+
+  const payload: ExportBackupPayload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    profileName: getProfileName() || undefined,
+    localGuestSheets: localGuestRaw ? JSON.parse(localGuestRaw) : null,
+    customProgramOverride: overrideRaw ? JSON.parse(overrideRaw) : null,
+    bodyWeightEntries: getBodyWeightEntries(),
+  };
+
+  const dateTag = new Date().toISOString().slice(0, 10);
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  triggerFileDownload(blob, `ironpulse-sauvegarde-${dateTag}.json`);
+}
+
+export function importBackupJson(rawText: string): { ok: boolean; msg: string } {
+  try {
+    const parsed = JSON.parse(rawText) as ExportBackupPayload;
+    if (!parsed || parsed.version !== 1) {
+      return { ok: false, msg: 'Fichier de sauvegarde non reconnu (version invalide).' };
+    }
+    if (parsed.localGuestSheets && typeof parsed.localGuestSheets === 'object') {
+      localStorage.setItem(STORAGE_KEY_LOCAL_GUEST_SHEETS, JSON.stringify(parsed.localGuestSheets));
+    }
+    if (Array.isArray(parsed.customProgramOverride)) {
+      localStorage.setItem(
+        STORAGE_KEY_CUSTOM_PROGRAM_OVERRIDE,
+        JSON.stringify(parsed.customProgramOverride)
+      );
+    }
+    if (Array.isArray(parsed.bodyWeightEntries)) {
+      saveBodyWeightEntriesLocal(parsed.bodyWeightEntries);
+    }
+    if (typeof parsed.profileName === 'string' && parsed.profileName.trim()) {
+      setProfileName(parsed.profileName.trim());
+    }
+    return { ok: true, msg: 'Sauvegarde restaurée avec succès !' };
+  } catch {
+    return { ok: false, msg: 'Impossible de lire ce fichier JSON.' };
+  }
+}
+
+export function exportJournalCsv(journalRows: JournalRow[]): void {
+  const escapeCsv = (val: string | number | boolean | null | undefined): string => {
+    const str = String(val ?? '');
+    if (str.includes(';') || str.includes('"') || str.includes('\n')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  const headers = [
+    'Date',
+    'Séance',
+    'Exercice',
+    'Série',
+    'Charge (kg)',
+    'Répétitions',
+    'Cible Reps',
+    'RIR',
+    'Ressenti',
+    'Tonnage',
+    'Validation Palier',
+    'Remarques',
+  ];
+
+  const lines = [
+    headers.join(';'),
+    ...journalRows.map((r) =>
+      [
+        r.date,
+        r.sessionName,
+        r.exercise,
+        r.setNumber,
+        r.weightKg ?? '',
+        r.reps ?? '',
+        r.targetReps,
+        r.rir,
+        r.feeling,
+        r.tonnage,
+        r.levelValidated ? 'Oui' : '',
+        r.notes,
+      ]
+        .map(escapeCsv)
+        .join(';')
+    ),
+  ];
+
+  const dateTag = new Date().toISOString().slice(0, 10);
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], {
+    type: 'text/csv;charset=utf-8;',
+  });
+  triggerFileDownload(blob, `ironpulse-journal-${dateTag}.csv`);
+}
+

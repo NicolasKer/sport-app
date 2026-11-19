@@ -1,25 +1,38 @@
 import React, { useMemo, useState } from 'react';
-import { Award, Calendar, Edit3, Flame, LineChart, Trash2, TrendingUp, Trophy, X } from 'lucide-react';
-import { JournalRow } from '../types/workout';
+import { Award, Calendar, Edit3, Flame, LineChart, Share2, Trash2, TrendingUp, Trophy, X } from 'lucide-react';
+import { BodyWeightEntry, JournalRow, ProgramTemplate } from '../types/workout';
 import { normalizeExerciseKey } from '../services/sheetsApi';
+import { ConsistencyCalendar } from './ConsistencyCalendar';
+import { BodyWeightTracker } from './BodyWeightTracker';
+import { shareOrDownloadRecapCard } from '../utils/shareCardGenerator';
 
 interface HistoryAndStatsViewProps {
   journalRows: JournalRow[];
+  templates: ProgramTemplate[];
+  bodyWeightEntries: BodyWeightEntry[];
+  profileName?: string;
   onEditSession: (date: string, sessionName: string, rows: JournalRow[]) => void;
   onDeleteSession: (date: string, sessionName: string, rows: JournalRow[]) => void;
+  onAddBodyWeight: (entry: BodyWeightEntry) => void;
+  onDeleteBodyWeight: (date: string) => void;
+  onNotify?: (msg: string) => void;
 }
 
 export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
   journalRows,
+  templates,
+  bodyWeightEntries,
+  profileName,
   onEditSession,
   onDeleteSession,
+  onAddBodyWeight,
+  onDeleteBodyWeight,
+  onNotify,
 }) => {
   const [selectedExerciseName, setSelectedExerciseName] = useState<string | null>(null);
   const [chartMode, setChartMode] = useState<'avgWeight' | 'e1rm' | 'tonnage' | 'maxWeight'>('avgWeight');
   const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
-  const [selectedSessionType, setSelectedSessionType] = useState<
-    'Full Body' | 'Lower + Cardio' | 'Upper'
-  >('Full Body');
+  const [selectedSessionType, setSelectedSessionType] = useState<string>('Full Body');
 
   const computeEpley1RM = (weight: number, reps: number): number => {
     if (!weight || weight <= 0) return 0;
@@ -175,28 +188,76 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
     return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [journalRows, selectedExerciseName]);
 
+  const availableSessionTypes = useMemo(() => {
+    const names = new Set<string>();
+    templates.forEach((t) => names.add(t.id));
+    pastSessions.forEach((s) => {
+      if (s.sessionName) names.add(s.sessionName);
+    });
+    if (names.size === 0) return ['Upper', 'Lower + Cardio', 'Full Body'];
+    return Array.from(names);
+  }, [templates, pastSessions]);
+
+  const effectiveSessionType = availableSessionTypes.includes(selectedSessionType)
+    ? selectedSessionType
+    : availableSessionTypes[0] || 'Upper';
+
   const sessionTypeProgression = useMemo(() => {
     return pastSessions
-      .filter((s) => s.sessionName === selectedSessionType && s.totalTonnage > 0)
+      .filter((s) => s.sessionName === effectiveSessionType && s.totalTonnage > 0)
       .slice()
       .sort((a, b) => a.date.localeCompare(b.date));
-  }, [pastSessions, selectedSessionType]);
+  }, [pastSessions, effectiveSessionType]);
+
+  const handleShareHistoricalSession = async (sess: (typeof pastSessions)[number]) => {
+    try {
+      const res = await shareOrDownloadRecapCard(
+        {
+          sessionName: sess.sessionName,
+          date: sess.date,
+          durationMinutes: 45,
+          totalSets: sess.totalSets,
+          totalTonnage: Math.round(sess.totalTonnage * 10) / 10,
+          previousSessionTonnage: null,
+          validatedPaliers: sess.validatedPaliers,
+          newRecords: [],
+          syncedOk: true,
+        },
+        profileName
+      );
+      if (res.method === 'download' && onNotify) {
+        onNotify('📸 Image récap téléchargée !');
+      } else if (res.method === 'share' && onNotify) {
+        onNotify('📸 Carte récap partagée !');
+      }
+    } catch {
+      onNotify?.('Impossible de générer l’image récap.');
+    }
+  };
 
   return (
     <div className="history-view">
+      <ConsistencyCalendar pastSessions={pastSessions} />
+
+      <BodyWeightTracker
+        entries={bodyWeightEntries}
+        onAddEntry={onAddBodyWeight}
+        onDeleteEntry={onDeleteBodyWeight}
+      />
+
       <section className="pr-section" style={{ marginBottom: '1.25rem' }}>
         <div className="section-heading">
           <LineChart size={18} />
           <h2>Évolution du Tonnage par Séance</h2>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.65rem' }}>
-          {(['Full Body', 'Lower + Cardio', 'Upper'] as const).map((type) => (
+        <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.65rem', flexWrap: 'wrap' }}>
+          {availableSessionTypes.map((type) => (
             <button
               key={type}
               type="button"
-              className={`superset-mini-tab ${selectedSessionType === type ? 'active' : ''}`}
-              style={{ flex: 1 }}
+              className={`superset-mini-tab ${effectiveSessionType === type ? 'active' : ''}`}
+              style={{ flex: '1 1 auto' }}
               onClick={() => setSelectedSessionType(type)}
             >
               {type}
@@ -206,11 +267,11 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
 
         <div className="chart-container" style={{ marginBottom: 0 }}>
           {sessionTypeProgression.length === 0 ? (
-            <div className="chart-caption">Aucune séance enregistrée pour {selectedSessionType}.</div>
+            <div className="chart-caption">Aucune séance enregistrée pour {effectiveSessionType}.</div>
           ) : (
             <>
               <div className="chart-caption">
-                Tonnage total soulevé sur <strong>{selectedSessionType}</strong> (
+                Tonnage total soulevé sur <strong>{effectiveSessionType}</strong> (
                 {sessionTypeProgression.length} séance{sessionTypeProgression.length > 1 ? 's' : ''})
               </div>
               <svg viewBox="0 0 320 135" className="progression-svg">
@@ -341,7 +402,17 @@ export const HistoryAndStatsView: React.FC<HistoryAndStatsViewProps> = ({
                     <button
                       type="button"
                       className="history-action-btn"
+                      title="Partager la carte récap en image"
+                      aria-label="Partager la carte récap"
+                      onClick={() => handleShareHistoricalSession(sess)}
+                    >
+                      <Share2 size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="history-action-btn"
                       title="Modifier cette séance"
+                      aria-label="Modifier cette séance"
                       onClick={() => onEditSession(sess.date, sess.sessionName, sess.allRows)}
                     >
                       <Edit3 size={15} />

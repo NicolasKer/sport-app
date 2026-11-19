@@ -11,6 +11,7 @@
 const SECRET_API_KEY = "CHANGE_MOI_PAR_TA_CLE_SECRETE";
 const SHEET_JOURNAL = "Journal d'entraînement";
 const SHEET_PROGRAMME = "Référence Programme";
+const SHEET_WEIGHT = "Suivi Poids";
 
 function jsonResponse(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(
@@ -29,6 +30,7 @@ function buildReadResponse() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const journalSheet = ss.getSheetByName(SHEET_JOURNAL);
   const progSheet = ss.getSheetByName(SHEET_PROGRAMME);
+  const weightSheet = ss.getSheetByName(SHEET_WEIGHT);
 
   const sheets = {};
   if (journalSheet) {
@@ -36,6 +38,9 @@ function buildReadResponse() {
   }
   if (progSheet) {
     sheets[SHEET_PROGRAMME] = progSheet.getDataRange().getDisplayValues();
+  }
+  if (weightSheet) {
+    sheets[SHEET_WEIGHT] = weightSheet.getDataRange().getDisplayValues();
   }
 
   return jsonResponse({
@@ -73,8 +78,39 @@ function doPost(e) {
     }
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const journalSheet = ss.getSheetByName(SHEET_JOURNAL);
 
+    if (payload.action === "saveProgram" && Array.isArray(payload.rows)) {
+      const progSheet = ss.getSheetByName(SHEET_PROGRAMME);
+      if (!progSheet) {
+        throw new Error("Onglet Référence Programme introuvable");
+      }
+      const lastRow = progSheet.getLastRow();
+      if (lastRow >= 5) {
+        progSheet.getRange(5, 2, lastRow - 4, 6).clearContent();
+      }
+      if (payload.rows.length > 0) {
+        progSheet.getRange(5, 2, payload.rows.length, 6).setValues(payload.rows);
+      }
+      return jsonResponse({ ok: true });
+    }
+
+    if (payload.action === "saveBodyWeight" && Array.isArray(payload.rows)) {
+      let weightSheet = ss.getSheetByName(SHEET_WEIGHT);
+      if (!weightSheet) {
+        weightSheet = ss.insertSheet(SHEET_WEIGHT);
+        weightSheet.getRange(1, 1, 1, 3).setValues([["Date", "Poids (kg)", "Notes"]]);
+      }
+      const lastRow = weightSheet.getLastRow();
+      if (lastRow >= 2) {
+        weightSheet.getRange(2, 1, lastRow - 1, 3).clearContent();
+      }
+      if (payload.rows.length > 0) {
+        weightSheet.getRange(2, 1, payload.rows.length, 3).setValues(payload.rows);
+      }
+      return jsonResponse({ ok: true });
+    }
+
+    const journalSheet = ss.getSheetByName(SHEET_JOURNAL);
     if (!journalSheet) {
       throw new Error("Onglet Journal d'entraînement introuvable");
     }

@@ -1,5 +1,15 @@
-import React from 'react';
-import { Award, CheckCircle2, Clock, Flame, Sparkles, TrendingUp, Trophy } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  Award,
+  CheckCircle2,
+  Clock,
+  Flame,
+  Share2,
+  Sparkles,
+  TrendingUp,
+  Trophy,
+} from 'lucide-react';
+import { shareOrDownloadRecapCard } from '../utils/shareCardGenerator';
 
 export interface WorkoutSummaryData {
   sessionName: string;
@@ -11,14 +21,23 @@ export interface WorkoutSummaryData {
   validatedPaliers: string[];
   newRecords: { exercise: string; weightKg: number; reps: number }[];
   syncedOk: boolean;
+  syncModeLabel?: string;
 }
 
 interface WorkoutSummaryModalProps {
   summary: WorkoutSummaryData | null;
+  profileName?: string;
   onClose: () => void;
 }
 
-export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({ summary, onClose }) => {
+export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({
+  summary,
+  profileName,
+  onClose,
+}) => {
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+
   if (!summary) return null;
 
   const tonnageDiff =
@@ -31,6 +50,23 @@ export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({ summar
       ? Math.round((tonnageDiff / summary.previousSessionTonnage) * 1000) / 10
       : null;
 
+  const handleShareCard = async () => {
+    setIsGenerating(true);
+    setShareStatus(null);
+    try {
+      const res = await shareOrDownloadRecapCard(summary, profileName);
+      if (res.method === 'share') {
+        setShareStatus('✅ Carte partagée !');
+      } else if (res.method === 'download') {
+        setShareStatus('📥 Image PNG téléchargée !');
+      }
+    } catch {
+      setShareStatus('Impossible de générer l’image.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="summary-title">
       <div className="modal-sheet summary-modal-sheet">
@@ -41,9 +77,11 @@ export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({ summar
           Séance {summary.sessionName} Terminée !
         </h2>
         <p className="summary-sub">
-          {summary.syncedOk
-            ? '✅ Enregistrée en direct dans ton Google Sheet'
-            : '💾 Sauvegardée sur le téléphone (en attente de réseau)'}
+          {summary.syncModeLabel
+            ? summary.syncModeLabel
+            : summary.syncedOk
+            ? '✅ Enregistrée avec succès'
+            : '💾 Sauvegardée sur le téléphone (en attente de synchro)'}
         </p>
 
         <div className="summary-stats-grid">
@@ -109,10 +147,34 @@ export const WorkoutSummaryModal: React.FC<WorkoutSummaryModalProps> = ({ summar
           </div>
         )}
 
-        <button type="button" className="primary-validate-btn" onClick={onClose}>
-          <CheckCircle2 size={18} />
-          <span>Super, retour à l'accueil</span>
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem', marginTop: '0.9rem' }}>
+          <button
+            type="button"
+            className="secondary-btn"
+            style={{ width: '100%', minHeight: '48px', justifyContent: 'center', fontSize: '0.9rem' }}
+            onClick={handleShareCard}
+            disabled={isGenerating}
+          >
+            <Share2 size={17} />
+            <span>{isGenerating ? 'Génération...' : '📸 Partager ma séance (Image)'}</span>
+          </button>
+
+          {shareStatus && (
+            <div style={{ fontSize: '0.78rem', color: '#34d399', fontWeight: 600 }}>
+              {shareStatus}
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="primary-validate-btn"
+            style={{ marginTop: 0 }}
+            onClick={onClose}
+          >
+            <CheckCircle2 size={18} />
+            <span>Super, retour à l&apos;accueil</span>
+          </button>
+        </div>
       </div>
     </div>
   );

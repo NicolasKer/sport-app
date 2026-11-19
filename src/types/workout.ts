@@ -5,7 +5,7 @@ export interface JournalRow {
   sheetRowNumber?: number;
   date: string;         // Col B (ex: '2026-11-04')
   sessionName: string;  // Col C (ex: 'Lower + Cardio', 'Full Body', 'Upper')
-  exercise: string;     // Col D (ex: 'Hack Squat')
+  exercise: string;     // Col D (ex: 'Presse à Cuisses')
   setNumber: number;    // Col E (ex: 1, 2, 3, 4)
   weightKg: number | null; // Col F (ex: 120)
   reps: number | null;     // Col G (ex: 8)
@@ -33,7 +33,7 @@ export interface ProgramExercise {
 }
 
 export interface ProgramTemplate {
-  id: string;              // 'Upper' | 'Lower + Cardio' | 'Full Body'
+  id: string;              // 'Upper' | 'Lower + Cardio' | 'Full Body' | custom
   fullTitle: string;       // 'Lundi midi - Upper'
   dayBadge: string;        // 'Lundi midi'
   icon: 'upper' | 'lower' | 'full';
@@ -79,7 +79,7 @@ export interface ActiveExerciseState {
 
 export interface ActiveWorkoutSession {
   date: string;
-  sessionName: string; // 'Upper' | 'Lower + Cardio' | 'Full Body'
+  sessionName: string;
   fullTitle: string;
   isPreCreatedInSheet: boolean;
   startedAt: number;
@@ -90,4 +90,19 @@ export interface BatchOperation {
   op: 'write' | 'append';
   range: string;
   data: (string | number)[][];
+}
+
+export interface BodyWeightEntry {
+  date: string; // YYYY-MM-DD
+  weightKg: number;
+  note?: string;
+}
+
+export interface ExportBackupPayload {
+  version: 1;
+  exportedAt: string;
+  profileName?: string;
+  localGuestSheets?: Record<string, string[][]> | null;
+  customProgramOverride?: string[][] | null;
+  bodyWeightEntries?: BodyWeightEntry[];
 }

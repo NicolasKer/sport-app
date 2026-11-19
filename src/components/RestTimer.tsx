@@ -1,47 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { Bell, FastForward, Minus, Plus, Timer } from 'lucide-react';
+import { Bell, FastForward, Minus, Plus, Timer, Volume2, VolumeX } from 'lucide-react';
+import { playRestFinishedChime, unlockAudioContext } from '../utils/audioAlert';
 
 interface RestTimerProps {
   endTimeMs: number | null;
   totalDurationSec: number;
   nextHint?: string;
+  soundEnabled: boolean;
+  onToggleSound: () => void;
   onAdjustSeconds: (deltaSec: number) => void;
   onDismiss: () => void;
-}
-
-function playBeepSequence() {
-  try {
-    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new AudioCtx();
-    const notes = [587.33, 783.99, 1046.5]; // D5, G5, C6
-    notes.forEach((freq, idx) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.14);
-      gain.gain.setValueAtTime(0.22, ctx.currentTime + idx * 0.14);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.14 + 0.13);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(ctx.currentTime + idx * 0.14);
-      osc.stop(ctx.currentTime + idx * 0.14 + 0.13);
-    });
-  } catch {
-    // Ignore audio context restriction
-  }
-  try {
-    if ('vibrate' in navigator) {
-      navigator.vibrate([200, 100, 250]);
-    }
-  } catch {
-    // Ignore
-  }
 }
 
 export const RestTimer: React.FC<RestTimerProps> = ({
   endTimeMs,
   totalDurationSec,
   nextHint,
+  soundEnabled,
+  onToggleSound,
   onAdjustSeconds,
   onDismiss,
 }) => {
@@ -61,7 +37,9 @@ export const RestTimer: React.FC<RestTimerProps> = ({
         setRemainingSec(0);
         if (!hasAlerted) {
           setHasAlerted(true);
-          playBeepSequence();
+          if (soundEnabled) {
+            playRestFinishedChime();
+          }
         }
       } else {
         setRemainingSec(diff);
@@ -71,20 +49,25 @@ export const RestTimer: React.FC<RestTimerProps> = ({
     update();
     const id = window.setInterval(update, 250);
     return () => window.clearInterval(id);
-  }, [endTimeMs, hasAlerted]);
+  }, [endTimeMs, hasAlerted, soundEnabled]);
 
   if (!endTimeMs) return null;
 
   const mins = Math.floor(remainingSec / 60);
   const secs = remainingSec % 60;
   const formatted = `${mins}:${secs.toString().padStart(2, '0')}`;
-  const pct = totalDurationSec > 0
-    ? Math.min(100, Math.max(0, ((totalDurationSec - remainingSec) / totalDurationSec) * 100))
-    : 100;
+  const pct =
+    totalDurationSec > 0
+      ? Math.min(100, Math.max(0, ((totalDurationSec - remainingSec) / totalDurationSec) * 100))
+      : 100;
   const isFinished = remainingSec <= 0;
 
   return (
-    <div className={`rest-timer-bar ${isFinished ? 'rest-timer-done' : ''}`} role="status" aria-live="polite">
+    <div
+      className={`rest-timer-bar ${isFinished ? 'rest-timer-done' : ''}`}
+      role="status"
+      aria-live="polite"
+    >
       <div className="rest-timer-progress" style={{ width: `${pct}%` }} />
       <div className="rest-timer-content">
         <div className="rest-timer-left">
@@ -100,6 +83,20 @@ export const RestTimer: React.FC<RestTimerProps> = ({
         </div>
 
         <div className="rest-timer-actions">
+          <button
+            type="button"
+            className="timer-chip-btn"
+            aria-pressed={soundEnabled}
+            aria-label={soundEnabled ? 'Couper le bip sonore' : 'Activer le bip sonore'}
+            onClick={() => {
+              unlockAudioContext();
+              onToggleSound();
+            }}
+            title={soundEnabled ? 'Bip audio & vibration activés' : 'Mode silencieux'}
+          >
+            {soundEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
+          </button>
+
           {!isFinished && (
             <>
               <button
@@ -120,11 +117,7 @@ export const RestTimer: React.FC<RestTimerProps> = ({
               </button>
             </>
           )}
-          <button
-            type="button"
-            className="timer-skip-btn"
-            onClick={onDismiss}
-          >
+          <button type="button" className="timer-skip-btn" onClick={onDismiss}>
             <FastForward size={16} />
             {isFinished ? 'OK' : 'Passer'}
           </button>

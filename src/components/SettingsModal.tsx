@@ -1,13 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import {
   CheckCircle2,
   ChevronDown,
   Cloud,
   Copy,
+  Download,
   Eye,
   EyeOff,
   ExternalLink,
+  FileSpreadsheet,
+  HardDrive,
   KeyRound,
   Link2,
   LogOut,
@@ -15,26 +18,35 @@ import {
   RefreshCw,
   ShieldCheck,
   Smartphone,
+  Upload,
   Wrench,
   X,
 } from 'lucide-react';
 import {
   buildMagicPairingLink,
   disconnectCloudAccount,
+  exportBackupJson,
+  exportJournalCsv,
   getApiKey,
   getAppsScriptUrl,
   getProfileName,
   getSheetMeta,
+  importBackupJson,
   isValidAppsScriptUrl,
   setApiKey,
   setAppsScriptUrl,
   setProfileName,
 } from '../services/sheetsApi';
+import { JournalRow } from '../types/workout';
 
 interface SettingsModalProps {
   isOpen: boolean;
   dataSource: 'gsheets-plugin' | 'apps-script' | 'local-guest' | 'local-cache';
   offlineQueueCount: number;
+  journalRows: JournalRow[];
+  canInstallApp: boolean;
+  isInstallingApp: boolean;
+  onInstallApp: () => void;
   onClose: () => void;
   onRefreshSheet: () => void;
   onFlushOfflineQueue: () => void;
@@ -46,6 +58,7 @@ function buildAppsScriptSnippet(secretKey: string): string {
   return `const SECRET_API_KEY = "${safeKey}";
 const SHEET_JOURNAL = "Journal d'entraînement";
 const SHEET_PROGRAMME = "Référence Programme";
+const SHEET_WEIGHT = "Suivi Poids";
 
 function jsonResponse(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
@@ -60,9 +73,11 @@ function buildReadResponse() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const journalSheet = ss.getSheetByName(SHEET_JOURNAL);
   const progSheet = ss.getSheetByName(SHEET_PROGRAMME);
+  const weightSheet = ss.getSheetByName(SHEET_WEIGHT);
   const sheets = {};
   if (journalSheet) sheets[SHEET_JOURNAL] = journalSheet.getDataRange().getDisplayValues();
   if (progSheet) sheets[SHEET_PROGRAMME] = progSheet.getDataRange().getDisplayValues();
+  if (weightSheet) sheets[SHEET_WEIGHT] = weightSheet.getDataRange().getDisplayValues();
   return jsonResponse({ ok: true, source: "apps-script", sheetName: ss.getName(), sheetUrl: ss.getUrl(), sheets: sheets });
 }
 
@@ -78,6 +93,24 @@ function doPost(e) {
     if (!isAuthorized(payload.key)) return jsonResponse({ ok: false, error: "Unauthorized: Clé secrète API invalide." });
     if (payload.action === "read") return buildReadResponse();
     const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (payload.action === "saveProgram" && Array.isArray(payload.rows)) {
+      const progSheet = ss.getSheetByName(SHEET_PROGRAMME);
+      const lastRow = progSheet.getLastRow();
+      if (lastRow >= 5) progSheet.getRange(5, 2, lastRow - 4, 6).clearContent();
+      if (payload.rows.length > 0) progSheet.getRange(5, 2, payload.rows.length, 6).setValues(payload.rows);
+      return jsonResponse({ ok: true });
+    }
+    if (payload.action === "saveBodyWeight" && Array.isArray(payload.rows)) {
+      let weightSheet = ss.getSheetByName(SHEET_WEIGHT);
+      if (!weightSheet) {
+        weightSheet = ss.insertSheet(SHEET_WEIGHT);
+        weightSheet.getRange(1, 1, 1, 3).setValues([["Date", "Poids (kg)", "Notes"]]);
+      }
+      const lastRow = weightSheet.getLastRow();
+      if (lastRow >= 2) weightSheet.getRange(2, 1, lastRow - 1, 3).clearContent();
+      if (payload.rows.length > 0) weightSheet.getRange(2, 1, payload.rows.length, 3).setValues(payload.rows);
+      return jsonResponse({ ok: true });
+    }
     const journalSheet = ss.getSheetByName(SHEET_JOURNAL);
     if (payload.action === "batchWrite" && Array.isArray(payload.operations)) {
       payload.operations.forEach(function (op) {
@@ -103,6 +136,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   dataSource,
   offlineQueueCount,
+  journalRows,
+  canInstallApp,
+  isInstallingApp,
+  onInstallApp,
   onClose,
   onRefreshSheet,
   onFlushOfflineQueue,
@@ -119,6 +156,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [isTesting, setIsTesting] = useState<boolean>(false);
+  const [backupNotice, setBackupNotice] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -127,6 +166,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setProfileNameState(getProfileName());
       setTestResult(null);
       setShowQrCode(false);
+      setBackupNotice(null);
     }
   }, [isOpen]);
 
@@ -286,6 +326,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onClose();
   };
 
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const res = importBackupJson(text);
+      setBackupNotice(res.msg);
+      if (res.ok) {
+        onRefreshSheet();
+      }
+    } catch {
+      setBackupNotice('Erreur lors de la lecture du fichier.');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
   return (
     <div
       className="modal-backdrop"
@@ -354,8 +411,80 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <LogOut size={15} /> Déconnecter
               </button>
             )}
+            {canInstallApp && (
+              <button
+                type="button"
+                className="primary-btn-sm"
+                aria-disabled={isInstallingApp ? 'true' : undefined}
+                onClick={() => {
+                  if (!isInstallingApp) onInstallApp();
+                }}
+              >
+                <Download size={15} />{' '}
+                {isInstallingApp ? 'Installation...' : "Installer l'application"}
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Backup & Export Section (Local JSON & Excel CSV) */}
+        <section className="settings-section-card backup-card">
+          <div className="settings-section-header">
+            <HardDrive size={17} color="#34d399" />
+            <div>
+              <h3>Sauvegarde &amp; Export de mes données</h3>
+              <p>
+                Exporte ton historique en CSV (Excel) ou sauvegarde tes séances locales en JSON pour ne rien perdre.
+              </p>
+            </div>
+          </div>
+
+          <div className="pairing-actions-row">
+            <button
+              type="button"
+              className="secondary-btn"
+              style={{ flex: '1 1 46%', justifyContent: 'center' }}
+              onClick={() => {
+                exportBackupJson();
+                setBackupNotice('✅ Sauvegarde JSON téléchargée !');
+              }}
+            >
+              <Download size={14} /> Sauvegarde (.json)
+            </button>
+            <button
+              type="button"
+              className="secondary-btn"
+              style={{ flex: '1 1 46%', justifyContent: 'center' }}
+              onClick={() => importInputRef.current?.click()}
+            >
+              <Upload size={14} /> Restaurer (.json)
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="visually-hidden"
+              onChange={handleImportFile}
+            />
+            <button
+              type="button"
+              className="secondary-btn"
+              style={{ flex: '1 1 100%', justifyContent: 'center' }}
+              onClick={() => {
+                exportJournalCsv(journalRows);
+                setBackupNotice('✅ Export CSV (Excel) téléchargé !');
+              }}
+            >
+              <FileSpreadsheet size={14} /> Exporter mon journal en CSV / Excel
+            </button>
+          </div>
+
+          {backupNotice && (
+            <div style={{ marginTop: '0.55rem', fontSize: '0.76rem', color: '#6ee7b7', fontWeight: 600 }}>
+              {backupNotice}
+            </div>
+          )}
+        </section>
 
         {/* 2. Transfer to another device (PC <-> Phone) via QR Code or Private Link */}
         {magicLink && (

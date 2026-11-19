@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
 import {
   ArrowLeft,
@@ -11,11 +11,15 @@ import {
   Flame,
   History,
   Info,
+  Moon,
   Plus,
   Repeat,
   Sparkles,
+  Sun,
   Timer,
   Trophy,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import {
   ActiveExerciseState,
@@ -23,6 +27,8 @@ import {
   ActiveWorkoutSession,
   Feeling,
 } from '../types/workout';
+import { getSoundEnabled, setSoundEnabled } from '../services/sheetsApi';
+import { unlockAudioContext } from '../utils/audioAlert';
 import { RestTimer } from './RestTimer';
 
 interface WorkoutSessionViewProps {
@@ -86,6 +92,35 @@ function getWeightBreakdownHint(exerciseName: string, weightKg: number): string 
   return null;
 }
 
+function roundToPlateStep(kg: number): number {
+  return Math.max(2.5, Math.round(kg / 2.5) * 2.5);
+}
+
+function buildWarmupSets(exerciseName: string, workingWeightKg: number) {
+  if (!workingWeightKg || workingWeightKg < 20) return [];
+  const specs =
+    workingWeightKg >= 60
+      ? [
+          { pct: 0.5, reps: 8, label: '50%' },
+          { pct: 0.725, reps: 4, label: '72%' },
+          { pct: 0.875, reps: 2, label: '88%' },
+        ]
+      : [
+          { pct: 0.55, reps: 8, label: '55%' },
+          { pct: 0.8, reps: 4, label: '80%' },
+        ];
+
+  return specs.map((spec) => {
+    const weightKg = roundToPlateStep(workingWeightKg * spec.pct);
+    return {
+      label: spec.label,
+      weightKg,
+      reps: spec.reps,
+      breakdown: getWeightBreakdownHint(exerciseName, weightKg),
+    };
+  });
+}
+
 export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
   session,
   syncStatusText,
@@ -100,10 +135,74 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
   const [timerHint, setTimerHint] = useState<string>('');
   const [showSwapPicker, setShowSwapPicker] = useState<boolean>(false);
   const [customSwapName, setCustomSwapName] = useState<string>('');
-  const [showAddExerciseModal, setShowAddExerciseModal] = useState<boolean>(false);
+  const [showAddExerciseModal, setShowAddExerciseModal] = useState<boolean>(
+    session.exercises.length === 0
+  );
   const [newExName, setNewExName] = useState<string>('');
   const [newExSetsCount, setNewExSetsCount] = useState<number>(3);
   const [newExTargetReps, setNewExTargetReps] = useState<string>('10-12');
+  const [showWarmups, setShowWarmups] = useState<boolean>(false);
+  const [completedWarmups, setCompletedWarmups] = useState<Record<string, boolean>>({});
+  const [soundEnabled, setSoundEnabledState] = useState<boolean>(() => getSoundEnabled());
+  const [wakeLockEnabled, setWakeLockEnabled] = useState<boolean>(true);
+  const [wakeLockActive, setWakeLockActive] = useState<boolean>(false);
+  const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
+  const wakeLockSupported = typeof navigator !== 'undefined' && 'wakeLock' in navigator;
+
+  useEffect(() => {
+    if (!wakeLockSupported || !wakeLockEnabled) {
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {});
+        wakeLockRef.current = null;
+      }
+      setWakeLockActive(false);
+      return;
+    }
+
+    let cancelled = false;
+    const requestLock = async () => {
+      try {
+        const wl = (
+          navigator as unknown as {
+            wakeLock: {
+              request: (type: 'screen') => Promise<{
+                release: () => Promise<void>;
+                addEventListener: (ev: string, cb: () => void) => void;
+              }>;
+            };
+          }
+        ).wakeLock;
+        const sentinel = await wl.request('screen');
+        if (cancelled) {
+          sentinel.release().catch(() => {});
+          return;
+        }
+        wakeLockRef.current = sentinel;
+        setWakeLockActive(true);
+        sentinel.addEventListener('release', () => {
+          if (!cancelled) setWakeLockActive(false);
+        });
+      } catch {
+        if (!cancelled) setWakeLockActive(false);
+      }
+    };
+
+    requestLock();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && wakeLockEnabled) {
+        requestLock();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisibility);
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {});
+        wakeLockRef.current = null;
+      }
+    };
+  }, [wakeLockEnabled, wakeLockSupported]);
 
   // Cardio helper fields adapted to session type (Full Body = Course 12min/10,5kmh, Lower = Marche inclinée 25min/5,3kmh/10%)
   const isFullBodySession = session.sessionName.toLowerCase().includes('full');
@@ -111,7 +210,8 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
   const [cardioSpeed, setCardioSpeed] = useState<string>(isFullBodySession ? '10,5' : '5,3');
   const [cardioIncline, setCardioIncline] = useState<string>(isFullBodySession ? '0' : '10');
 
-  const currentEx: ActiveExerciseState = session.exercises[activeExIdx] || session.exercises[0];
+  const currentEx: ActiveExerciseState | undefined =
+    session.exercises[activeExIdx] || session.exercises[0];
 
   const stats = useMemo(() => {
     let totalSets = 0;
@@ -142,9 +242,17 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
   }, [session.exercises, currentEx]);
 
   const startRestTimer = (seconds: number, hint: string) => {
+    unlockAudioContext();
     setTimerTotalSec(seconds);
     setTimerEndMs(Date.now() + seconds * 1000);
     setTimerHint(hint);
+  };
+
+  const handleToggleSound = () => {
+    const next = !soundEnabled;
+    if (next) unlockAudioContext();
+    setSoundEnabled(next);
+    setSoundEnabledState(next);
   };
 
   const adjustRestTimer = (deltaSec: number) => {
@@ -196,6 +304,7 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
   };
 
   const handleAddBonusSet = () => {
+    if (!currentEx) return;
     const lastSet = currentEx.sets[currentEx.sets.length - 1];
     const newSetNumber = currentEx.sets.length + 1;
     const bonusSet: ActiveSetState = {
@@ -215,6 +324,7 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
   };
 
   const handleToggleCompleteSet = (exIndex: number, setIndex: number) => {
+    unlockAudioContext();
     const ex = session.exercises[exIndex];
     const targetSet = ex.sets[setIndex];
     const willComplete = !targetSet.completed;
@@ -288,6 +398,7 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
         );
         window.setTimeout(() => {
           setActiveExIdx(nextPartnerIdx);
+          setShowWarmups(false);
         }, 350);
         return;
       }
@@ -365,6 +476,7 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
   };
 
   const handleTogglePalier = () => {
+    if (!currentEx) return;
     const willValidate = !currentEx.levelValidated;
     if (willValidate) {
       try {
@@ -394,6 +506,7 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
   };
 
   const applyCardioPreset = () => {
+    if (!currentEx) return;
     const isCourse = currentEx.exerciseName.toLowerCase().includes('course');
     const summary = isCourse
       ? `${cardioDuration} min course rythmée à ${cardioSpeed} km/h`
@@ -457,7 +570,36 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
           </button>
         </div>
 
-        {/* Progress & Live Tonnage bar */}
+        {/* Utility & Progress Strip: Wake Lock + Sound + Live Tonnage */}
+        <div className="workout-utility-pills">
+          {wakeLockSupported && (
+            <button
+              type="button"
+              className={`utility-pill ${wakeLockEnabled ? 'active' : ''}`}
+              aria-pressed={wakeLockEnabled}
+              onClick={() => setWakeLockEnabled((prev) => !prev)}
+            >
+              {wakeLockEnabled ? <Sun size={13} /> : <Moon size={13} />}
+              <span>
+                {wakeLockEnabled
+                  ? wakeLockActive
+                    ? 'Écran allumé'
+                    : 'Écran actif'
+                  : 'Veille auto'}
+              </span>
+            </button>
+          )}
+          <button
+            type="button"
+            className={`utility-pill ${soundEnabled ? 'active' : ''}`}
+            aria-pressed={soundEnabled}
+            onClick={handleToggleSound}
+          >
+            {soundEnabled ? <Volume2 size={13} /> : <VolumeX size={13} />}
+            <span>{soundEnabled ? 'Bip chrono ON' : 'Son coupé'}</span>
+          </button>
+        </div>
+
         <div className="workout-metrics-strip">
           <div className="metric-box">
             <span className="metric-label">Progression</span>
@@ -490,7 +632,10 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
                 className={`ex-rail-pill ${isActive ? 'active' : ''} ${
                   isAllDone ? 'done' : ''
                 } ${isSuperset ? 'superset' : ''}`}
-                onClick={() => setActiveExIdx(idx)}
+                onClick={() => {
+                  setActiveExIdx(idx);
+                  setShowWarmups(false);
+                }}
               >
                 <span className="ex-rail-code">{ex.codePrefix}</span>
                 <span className="ex-rail-name">
@@ -520,65 +665,154 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
 
       {/* Main Exercise Card */}
       <main className="workout-main">
-        {currentEx.supersetGroup && supersetPartnerIndices.length > 1 && (
-          <div className="superset-banner">
-            <div className="superset-banner-left">
-              <Repeat size={16} />
-              <span>
-                <strong>SUPERSET {currentEx.supersetGroup}</strong> — Alternance automatique
-              </span>
-            </div>
-            <div className="superset-switch-btns">
-              {supersetPartnerIndices.map((pIdx) => {
-                const partner = session.exercises[pIdx];
-                return (
-                  <button
-                    key={pIdx}
-                    type="button"
-                    className={`superset-mini-tab ${pIdx === activeExIdx ? 'active' : ''}`}
-                    onClick={() => setActiveExIdx(pIdx)}
-                  >
-                    {partner.codePrefix}. {partner.exerciseName.split(' ')[0]}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        <section className="exercise-hero-card">
-          <div className="exercise-hero-top">
-            <div>
-              <span className="exercise-step-badge">
-                Exercice {activeExIdx + 1} sur {session.exercises.length}
-              </span>
-              <h2>{currentEx.exerciseName}</h2>
-            </div>
-            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-              <button
-                type="button"
-                className="manual-timer-trigger"
-                onClick={() => setShowSwapPicker((prev) => !prev)}
-                title="Changer d'exercice si la machine est prise"
-              >
-                <Repeat size={15} />
-                <span>Variante</span>
-              </button>
-              <button
-                type="button"
-                className="manual-timer-trigger"
-                onClick={() =>
-                  startRestTimer(
-                    currentEx.restSeconds || 90,
-                    `Repos manuel (${currentEx.restLabel})`
+        {!currentEx ? (
+          <section className="exercise-hero-card" style={{ textAlign: 'center', padding: '1.4rem 1rem' }}>
+            <div style={{ fontSize: '2rem', marginBottom: '0.4rem' }}>⚡</div>
+            <h2 style={{ margin: '0 0 0.35rem' }}>Séance libre prête !</h2>
+            <p style={{ margin: '0 0 1rem', fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
+              Construis ta séance au fur et à mesure en ajoutant tes exercices ci-dessous.
+            </p>
+            <div className="field-group" style={{ textAlign: 'left', marginBottom: '0.9rem' }}>
+              <label htmlFor="free-session-name-input">Nom de la séance dans ton journal</label>
+              <input
+                id="free-session-name-input"
+                type="text"
+                value={session.sessionName}
+                onChange={(e) =>
+                  onUpdateSession(
+                    { ...session, sessionName: e.target.value, fullTitle: e.target.value },
+                    false
                   )
                 }
-              >
-                <Timer size={16} />
-                <span>{currentEx.restLabel}</span>
-              </button>
+              />
             </div>
-          </div>
+            <button
+              type="button"
+              className="primary-validate-btn"
+              style={{ marginTop: 0 }}
+              onClick={() => setShowAddExerciseModal(true)}
+            >
+              <Plus size={18} />
+              <span>Ajouter mon premier exercice</span>
+            </button>
+          </section>
+        ) : (
+          <>
+            {currentEx.supersetGroup && supersetPartnerIndices.length > 1 && (
+              <div className="superset-banner">
+                <div className="superset-banner-left">
+                  <Repeat size={16} />
+                  <span>
+                    <strong>SUPERSET {currentEx.supersetGroup}</strong> — Alternance automatique
+                  </span>
+                </div>
+                <div className="superset-switch-btns">
+                  {supersetPartnerIndices.map((pIdx) => {
+                    const partner = session.exercises[pIdx];
+                    return (
+                      <button
+                        key={pIdx}
+                        type="button"
+                        className={`superset-mini-tab ${pIdx === activeExIdx ? 'active' : ''}`}
+                        onClick={() => {
+                          setActiveExIdx(pIdx);
+                          setShowWarmups(false);
+                        }}
+                      >
+                        {partner.codePrefix}. {partner.exerciseName.split(' ')[0]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <section className="exercise-hero-card">
+              <div className="exercise-hero-top">
+                <div>
+                  <span className="exercise-step-badge">
+                    Exercice {activeExIdx + 1} sur {session.exercises.length}
+                  </span>
+                  <h2>{currentEx.exerciseName}</h2>
+                </div>
+                <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  {!currentEx.isCardio && (currentEx.sets[0]?.weightKg || 0) >= 20 && (
+                    <button
+                      type="button"
+                      className={`manual-timer-trigger ${showWarmups ? 'warmup-active' : ''}`}
+                      onClick={() => setShowWarmups((prev) => !prev)}
+                      aria-expanded={showWarmups}
+                      title="Calculer tes séries d'échauffement progressives"
+                    >
+                      <Flame size={15} color="#fb923c" />
+                      <span>Échauff.</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="manual-timer-trigger"
+                    onClick={() => setShowSwapPicker((prev) => !prev)}
+                    title="Changer d'exercice si la machine est prise"
+                  >
+                    <Repeat size={15} />
+                    <span>Variante</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="manual-timer-trigger"
+                    onClick={() =>
+                      startRestTimer(
+                        currentEx.restSeconds || 90,
+                        `Repos manuel (${currentEx.restLabel})`
+                      )
+                    }
+                  >
+                    <Timer size={16} />
+                    <span>{currentEx.restLabel}</span>
+                  </button>
+                </div>
+              </div>
+
+              {showWarmups && !currentEx.isCardio && (
+                <div className="warmup-box">
+                  <div className="warmup-box-header">
+                    <span>
+                      🔥 <strong>Gammes d&apos;échauffement</strong> (sur base de{' '}
+                      {currentEx.sets[0]?.weightKg || 0} kg — non envoyées au Sheet)
+                    </span>
+                  </div>
+                  <div className="warmup-sets-list">
+                    {buildWarmupSets(currentEx.exerciseName, currentEx.sets[0]?.weightKg || 0).map(
+                      (wu, wIdx) => {
+                        const wuKey = `${activeExIdx}_${wIdx}`;
+                        const isDone = Boolean(completedWarmups[wuKey]);
+                        return (
+                          <button
+                            key={wIdx}
+                            type="button"
+                            className={`warmup-set-row ${isDone ? 'done' : ''}`}
+                            onClick={() => {
+                              unlockAudioContext();
+                              const nextVal = !isDone;
+                              setCompletedWarmups((prev) => ({ ...prev, [wuKey]: nextVal }));
+                              if (nextVal) {
+                                startRestTimer(45, 'Repos échauffement (45s)');
+                              }
+                            }}
+                          >
+                            <span className="warmup-pct">{wu.label}</span>
+                            <span className="warmup-main">
+                              <strong>{wu.weightKg} kg</strong> × {wu.reps} reps
+                            </span>
+                            {wu.breakdown && <span className="warmup-hint">{wu.breakdown}</span>}
+                            <span className="warmup-check">{isDone ? <Check size={14} /> : '✓'}</span>
+                          </button>
+                        );
+                      }
+                    )}
+                  </div>
+                </div>
+              )}
 
           {showSwapPicker && (
             <div className="swap-picker-box">
@@ -1010,7 +1244,10 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
             type="button"
             className="secondary-nav-btn"
             disabled={activeExIdx === 0}
-            onClick={() => setActiveExIdx((i) => Math.max(0, i - 1))}
+            onClick={() => {
+              setActiveExIdx((i) => Math.max(0, i - 1));
+              setShowWarmups(false);
+            }}
           >
             <ChevronLeft size={18} /> Précédent
           </button>
@@ -1019,7 +1256,10 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
             <button
               type="button"
               className="primary-nav-btn"
-              onClick={() => setActiveExIdx((i) => Math.min(session.exercises.length - 1, i + 1))}
+              onClick={() => {
+                setActiveExIdx((i) => Math.min(session.exercises.length - 1, i + 1));
+                setShowWarmups(false);
+              }}
             >
               Exercice suivant <ChevronRight size={18} />
             </button>
@@ -1049,6 +1289,8 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
             ? 'Valide au moins 1 série pour enregistrer'
             : `Terminer & Synchroniser la séance (${stats.completedSets} séries)`}
         </button>
+          </>
+        )}
       </main>
 
       {/* Floating Auto Rest Timer */}
@@ -1056,6 +1298,8 @@ export const WorkoutSessionView: React.FC<WorkoutSessionViewProps> = ({
         endTimeMs={timerEndMs}
         totalDurationSec={timerTotalSec}
         nextHint={timerHint}
+        soundEnabled={soundEnabled}
+        onToggleSound={handleToggleSound}
         onAdjustSeconds={adjustRestTimer}
         onDismiss={() => setTimerEndMs(null)}
       />

@@ -1,38 +1,56 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BarChart3,
   Calendar,
   CheckCircle2,
   Cloud,
   Dumbbell,
+  Edit3,
   Flame,
   Play,
+  Plus,
   RefreshCw,
   Settings,
   Sparkles,
   Zap,
 } from 'lucide-react';
 import {
+  addBodyWeightEntry,
   buildBatchOperationsForSession,
   buildDeleteSessionOperations,
+  buildFreeWorkoutSession,
   buildWorkoutSession,
   clearOfflineQueue,
+  deleteBodyWeightEntry,
   fetchSheetData,
   getAppsScriptUrl,
+  getBodyWeightEntries,
   getOfflineQueue,
   getProfileName,
   loadActiveSessionDraft,
   ParsedSheetData,
   processMagicPairingLink,
   saveActiveSessionDraft,
+  saveProgramTemplates,
   syncBatchOperations,
 } from './services/sheetsApi';
-import { ActiveWorkoutSession, JournalRow } from './types/workout';
+import {
+  ActiveWorkoutSession,
+  BodyWeightEntry,
+  JournalRow,
+  ProgramTemplate,
+} from './types/workout';
 import { WorkoutSessionView } from './components/WorkoutSessionView';
 import { HistoryAndStatsView } from './components/HistoryAndStatsView';
 import { SettingsModal } from './components/SettingsModal';
 import { WorkoutSummaryData, WorkoutSummaryModal } from './components/WorkoutSummaryModal';
+import { ProgramEditorModal } from './components/ProgramEditorModal';
 import { normalizeExerciseKey } from './services/sheetsApi';
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
 
 function getTodayIso(): string {
   const d = new Date();
@@ -55,6 +73,14 @@ export const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [workoutSummary, setWorkoutSummary] = useState<WorkoutSummaryData | null>(null);
+  const [editingTemplate, setEditingTemplate] = useState<ProgramTemplate | 'new' | null>(null);
+  const [isSavingProgram, setIsSavingProgram] = useState<boolean>(false);
+  const [bodyWeightEntries, setBodyWeightEntries] = useState<BodyWeightEntry[]>(() =>
+    getBodyWeightEntries()
+  );
+  const deferredInstallPromptRef = useRef<BeforeInstallPromptEvent | null>(null);
+  const [canInstallApp, setCanInstallApp] = useState<boolean>(false);
+  const [isInstallingApp, setIsInstallingApp] = useState<boolean>(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -63,11 +89,64 @@ export const App: React.FC = () => {
     }, 3200);
   };
 
+  useEffect(() => {
+    const supportsWebInstall = typeof (Navigator.prototype as unknown as { install?: unknown }).install === 'function';
+    if (supportsWebInstall) {
+      setCanInstallApp(true);
+    }
+    const onBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      deferredInstallPromptRef.current = e as BeforeInstallPromptEvent;
+      setCanInstallApp(true);
+    };
+    const onInstalled = () => {
+      deferredInstallPromptRef.current = null;
+      setCanInstallApp(false);
+    };
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (isInstallingApp) return;
+    setIsInstallingApp(true);
+    try {
+      const nav = navigator as unknown as { install?: () => Promise<void> };
+      if (typeof nav.install === 'function') {
+        await nav.install();
+        showToast('📲 Application installée !');
+        setCanInstallApp(false);
+      } else if (deferredInstallPromptRef.current) {
+        const promptEvent = deferredInstallPromptRef.current;
+        deferredInstallPromptRef.current = null;
+        await promptEvent.prompt();
+        const { outcome } = await promptEvent.userChoice;
+        if (outcome === 'accepted') {
+          showToast('📲 Application installée sur l’écran d’accueil !');
+          setCanInstallApp(false);
+        } else {
+          setCanInstallApp(Boolean(deferredInstallPromptRef.current));
+        }
+      }
+    } catch (err: unknown) {
+      if (!(err instanceof Error && err.name === 'AbortError')) {
+        showToast("Utilise le menu de ton navigateur (« Ajouter à l'écran d'accueil »).");
+      }
+    } finally {
+      setIsInstallingApp(false);
+    }
+  };
+
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
       const data = await fetchSheetData();
       setSheetData(data);
+      setBodyWeightEntries(getBodyWeightEntries());
       setSyncStatusText(
         data.source === 'gsheets-plugin'
           ? 'Sheet Live'
@@ -117,6 +196,76 @@ export const App: React.FC = () => {
     );
     setActiveSession(session);
     saveActiveSessionDraft(session);
+  };
+
+  const handleStartFreeSession = () => {
+    const session = buildFreeWorkoutSession(selectedDate, 'Séance Libre');
+    setActiveSession(session);
+    saveActiveSessionDraft(session);
+  };
+
+  const handleSaveTemplateEdit = async (updated: ProgramTemplate, previousId?: string) => {
+    if (!sheetData) return;
+    setIsSavingProgram(true);
+    const existing = sheetData.templates;
+    let nextTemplates: ProgramTemplate[];
+    if (previousId) {
+      nextTemplates = existing.map((t) => (t.id === previousId ? updated : t));
+    } else {
+      const duplicateIdx = existing.findIndex(
+        (t) => t.id.toLowerCase() === updated.id.toLowerCase()
+      );
+      if (duplicateIdx >= 0) {
+        nextTemplates = existing.map((t, i) => (i === duplicateIdx ? updated : t));
+      } else {
+        nextTemplates = [...existing, updated];
+      }
+    }
+
+    const res = await saveProgramTemplates(nextTemplates);
+    setIsSavingProgram(false);
+    setEditingTemplate(null);
+    if (res.syncedToSheet) {
+      showToast(`✨ Séance « ${updated.id} » enregistrée dans ton Google Sheet !`);
+    } else if (res.needsScriptUpdate) {
+      showToast(
+        `✅ Séance « ${updated.id} » prête ! (Mets à jour Code.gs dans Paramètres pour la sauvegarder aussi dans l'onglet Programme du Sheet)`
+      );
+    } else {
+      showToast(`✅ Séance « ${updated.id} » enregistrée !`);
+    }
+    await loadData();
+  };
+
+  const handleDeleteTemplate = async (templateId: string) => {
+    if (!sheetData) return;
+    setIsSavingProgram(true);
+    const nextTemplates = sheetData.templates.filter((t) => t.id !== templateId);
+    const res = await saveProgramTemplates(nextTemplates);
+    setIsSavingProgram(false);
+    setEditingTemplate(null);
+    if (res.syncedToSheet) {
+      showToast(`🗑️ Séance « ${templateId} » supprimée du Sheet.`);
+    } else {
+      showToast(`🗑️ Séance « ${templateId} » supprimée.`);
+    }
+    await loadData();
+  };
+
+  const handleAddBodyWeight = async (entry: BodyWeightEntry) => {
+    const res = await addBodyWeightEntry(entry);
+    setBodyWeightEntries(res.entries);
+    showToast(
+      res.syncedToSheet
+        ? `⚖️ Pesée (${entry.weightKg} kg) enregistrée dans ton Sheet !`
+        : `⚖️ Pesée (${entry.weightKg} kg) enregistrée !`
+    );
+  };
+
+  const handleDeleteBodyWeight = async (date: string) => {
+    const res = await deleteBodyWeightEntry(date);
+    setBodyWeightEntries(res.entries);
+    showToast(`Pesée du ${date} supprimée.`);
   };
 
   const getLastSheetRowNumber = () => {
@@ -245,6 +394,12 @@ export const App: React.FC = () => {
       validatedPaliers,
       newRecords,
       syncedOk: res.ok,
+      syncModeLabel:
+        res.via === 'Mémoire locale du téléphone'
+          ? '💾 Enregistrée en Mode Local sur cet appareil'
+          : res.ok
+          ? '✅ Enregistrée en direct dans ton Google Sheet'
+          : '💾 Sauvegardée hors-ligne (prête à synchroniser)',
     });
 
     await loadData();
@@ -309,8 +464,11 @@ export const App: React.FC = () => {
     uniqueSessions.sort((a, b) => a.date.localeCompare(b.date));
     const lastSession = uniqueSessions.length > 0 ? uniqueSessions[uniqueSessions.length - 1] : null;
 
-    const cycle = ['Upper', 'Lower + Cardio', 'Full Body'];
-    let nextRecommendedId = 'Upper';
+    const cycle =
+      sheetData.templates.length > 0
+        ? sheetData.templates.map((t) => t.id)
+        : ['Upper', 'Lower + Cardio', 'Full Body'];
+    let nextRecommendedId = cycle[0];
     if (lastSession) {
       const idx = cycle.findIndex((c) => c.toLowerCase() === lastSession.sessionName.toLowerCase());
       if (idx >= 0) {
@@ -578,7 +736,10 @@ export const App: React.FC = () => {
               <div className="templates-header-row">
                 <div className="section-heading">
                   <Zap size={18} />
-                  <h2>Ton Programme (3 séances)</h2>
+                  <h2>
+                    Ton Programme ({sheetData?.templates.length || 0} séance
+                    {(sheetData?.templates.length || 0) > 1 ? 's' : ''})
+                  </h2>
                 </div>
                 <div className="date-picker-inline">
                   <label htmlFor="workout-date-picker">
@@ -592,6 +753,30 @@ export const App: React.FC = () => {
                     onChange={(e) => setSelectedDate(e.target.value)}
                   />
                 </div>
+              </div>
+
+              <div className="home-program-actions">
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  style={{ flex: 1, justifyContent: 'center' }}
+                  onClick={() => setEditingTemplate('new')}
+                >
+                  <Plus size={15} /> Nouvelle séance
+                </button>
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  style={{
+                    flex: 1,
+                    justifyContent: 'center',
+                    borderColor: 'rgba(6, 182, 212, 0.35)',
+                    color: '#67e8f9',
+                  }}
+                  onClick={handleStartFreeSession}
+                >
+                  <Zap size={15} /> Séance libre
+                </button>
               </div>
 
               <div className="templates-grid">
@@ -609,7 +794,7 @@ export const App: React.FC = () => {
                     >
                       <div className="template-card-top">
                         <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
                             <span className="day-pill">{tpl.dayBadge}</span>
                             {isRecommended && (
                               <span className="recommended-pill">⭐ Prochaine séance</span>
@@ -617,13 +802,24 @@ export const App: React.FC = () => {
                           </div>
                           <h3>{tpl.id}</h3>
                         </div>
-                        <button
-                          type="button"
-                          className="launch-tpl-btn"
-                          onClick={() => handleStartTemplate(tpl.id)}
-                        >
-                          <Play size={16} /> Démarrer
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <button
+                            type="button"
+                            className="history-action-btn"
+                            title="Modifier cette séance"
+                            aria-label={`Modifier la séance ${tpl.id}`}
+                            onClick={() => setEditingTemplate(tpl)}
+                          >
+                            <Edit3 size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            className="launch-tpl-btn"
+                            onClick={() => handleStartTemplate(tpl.id)}
+                          >
+                            <Play size={16} /> Démarrer
+                          </button>
+                        </div>
                       </div>
 
                       <div className="template-chips">
@@ -661,8 +857,14 @@ export const App: React.FC = () => {
           sheetData && (
             <HistoryAndStatsView
               journalRows={sheetData.journalRows}
+              templates={sheetData.templates}
+              bodyWeightEntries={bodyWeightEntries}
+              profileName={profileName}
               onEditSession={handleEditHistorySession}
               onDeleteSession={handleDeleteHistorySession}
+              onAddBodyWeight={handleAddBodyWeight}
+              onDeleteBodyWeight={handleDeleteBodyWeight}
+              onNotify={showToast}
             />
           )
         )}
@@ -692,6 +894,10 @@ export const App: React.FC = () => {
         isOpen={isSettingsOpen}
         dataSource={sheetData?.source || 'local-guest'}
         offlineQueueCount={offlineCount}
+        journalRows={sheetData?.journalRows || []}
+        canInstallApp={canInstallApp}
+        isInstallingApp={isInstallingApp}
+        onInstallApp={handleInstallApp}
         onClose={() => setIsSettingsOpen(false)}
         onRefreshSheet={loadData}
         onFlushOfflineQueue={handleFlushOfflineQueue}
@@ -701,8 +907,20 @@ export const App: React.FC = () => {
         }}
       />
 
+      <ProgramEditorModal
+        isOpen={editingTemplate !== null}
+        mode={editingTemplate === 'new' ? 'create' : 'edit'}
+        initialTemplate={editingTemplate === 'new' ? null : editingTemplate}
+        existingTemplateCount={sheetData?.templates.length || 0}
+        isSaving={isSavingProgram}
+        onClose={() => setEditingTemplate(null)}
+        onSaveTemplate={handleSaveTemplateEdit}
+        onDeleteTemplate={handleDeleteTemplate}
+      />
+
       <WorkoutSummaryModal
         summary={workoutSummary}
+        profileName={profileName}
         onClose={() => setWorkoutSummary(null)}
       />
 
