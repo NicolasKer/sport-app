@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import {
   CheckCircle2,
+  ChevronDown,
   Cloud,
   Copy,
   Eye,
@@ -9,8 +11,11 @@ import {
   KeyRound,
   Link2,
   LogOut,
+  QrCode,
   RefreshCw,
   ShieldCheck,
+  Smartphone,
+  Wrench,
   X,
 } from 'lucide-react';
 import {
@@ -110,6 +115,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [savedNotice, setSavedNotice] = useState<boolean>(false);
   const [copiedScript, setCopiedScript] = useState<boolean>(false);
   const [copiedMagicLink, setCopiedMagicLink] = useState<boolean>(false);
+  const [showQrCode, setShowQrCode] = useState<boolean>(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [isTesting, setIsTesting] = useState<boolean>(false);
 
@@ -119,8 +126,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setApiKeyState(getApiKey());
       setProfileNameState(getProfileName());
       setTestResult(null);
+      setShowQrCode(false);
     }
   }, [isOpen]);
+
+  const magicLink = isValidAppsScriptUrl(gasUrl)
+    ? buildMagicPairingLink(gasUrl, apiKey, profileName)
+    : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (showQrCode && magicLink) {
+      QRCode.toDataURL(magicLink, {
+        width: 240,
+        margin: 2,
+        color: { dark: '#090d16', light: '#ffffff' },
+      })
+        .then((url) => {
+          if (!cancelled) setQrDataUrl(url);
+        })
+        .catch(() => {
+          if (!cancelled) setQrDataUrl('');
+        });
+    } else {
+      setQrDataUrl('');
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [showQrCode, magicLink]);
 
   if (!isOpen) return null;
 
@@ -231,10 +265,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleCopyMagicLink = async () => {
-    const link = buildMagicPairingLink(gasUrl, apiKey, profileName);
-    if (!link) return;
+    if (!magicLink) return;
     try {
-      await navigator.clipboard.writeText(link);
+      await navigator.clipboard.writeText(magicLink);
       setCopiedMagicLink(true);
       window.setTimeout(() => setCopiedMagicLink(false), 2800);
     } catch {
@@ -247,6 +280,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setGasUrl('');
     setApiKeyState('');
     setProfileNameState('');
+    setShowQrCode(false);
     setTestResult(null);
     onDisconnected();
     onClose();
@@ -260,14 +294,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       aria-labelledby="settings-title"
       onClick={onClose}
     >
-      <div className="modal-sheet" onClick={(e) => e.stopPropagation()} style={{ maxHeight: '90dvh', overflowY: 'auto' }}>
+      <div
+        className="modal-sheet"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxHeight: '90dvh', overflowY: 'auto' }}
+      >
         <div className="modal-header">
-          <h2 id="settings-title">Espace &amp; Connexion Google Sheets</h2>
+          <h2 id="settings-title">Paramètres &amp; Synchronisation</h2>
           <button type="button" className="icon-ghost-btn" onClick={onClose} aria-label="Fermer">
             <X size={20} />
           </button>
         </div>
 
+        {/* 1. Active Status Card */}
         <div className="connection-status-card">
           <div className="conn-row">
             <ShieldCheck size={20} className="conn-icon-ok" />
@@ -290,7 +329,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     Tableur : <code>{sheetMeta.sheetName}</code>
                   </>
                 ) : (
-                  'Tes séances restent enregistrées uniquement sur ce téléphone.'
+                  'Tes séances restent enregistrées uniquement sur cet appareil.'
                 )}
               </div>
             </div>
@@ -318,9 +357,60 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
 
+        {/* 2. Transfer to another device (PC <-> Phone) via QR Code or Private Link */}
+        {magicLink && (
+          <section className="settings-section-card pairing-card">
+            <div className="settings-section-header">
+              <Smartphone size={17} color="#38bdf8" />
+              <div>
+                <h3>Connecter un autre appareil (PC ↔ Téléphone)</h3>
+                <p>
+                  Transfère ta connexion vers ton téléphone sans rien recopier.{' '}
+                  <strong>Ne partage pas ce QR Code ni ce lien</strong> (il contient ta clé privée).
+                </p>
+              </div>
+            </div>
+
+            <div className="pairing-actions-row">
+              <button
+                type="button"
+                className="primary-btn-sm"
+                style={{ flex: 1, justifyContent: 'center' }}
+                onClick={() => setShowQrCode((prev) => !prev)}
+                aria-expanded={showQrCode}
+              >
+                <QrCode size={15} />
+                <span>{showQrCode ? 'Masquer le QR Code' : 'Afficher le QR Code'}</span>
+              </button>
+              <button
+                type="button"
+                className="secondary-btn"
+                style={{ flex: 1, justifyContent: 'center' }}
+                onClick={handleCopyMagicLink}
+              >
+                <Link2 size={15} />
+                <span>{copiedMagicLink ? 'Lien privé copié !' : 'Copier le lien privé'}</span>
+              </button>
+            </div>
+
+            {showQrCode && qrDataUrl && (
+              <div className="qr-preview-box">
+                <img
+                  src={qrDataUrl}
+                  alt="QR Code d'appairage privé IronPulse"
+                  width={210}
+                  height={210}
+                />
+                <span>Scanne avec l&apos;appareil photo de ton téléphone pour te connecter en 1 clic</span>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* 3. Google Sheet Connection Form */}
         <form onSubmit={handleSave} className="gas-form">
           <div className="field-group" style={{ marginBottom: '0.7rem' }}>
-            <label htmlFor="profile-name-input">Prénom / Nom du profil (affiché uniquement sur cet appareil)</label>
+            <label htmlFor="profile-name-input">Prénom / Nom du profil (affiché sur cet appareil)</label>
             <input
               id="profile-name-input"
               name="profileName"
@@ -334,7 +424,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <div className="field-group" style={{ marginBottom: '0.7rem' }}>
             <label htmlFor="gas-url-input">
-              URL Web App Google Apps Script (optionnel — pour synchroniser avec ton propre Sheet)
+              URL Web App Google Apps Script (pour synchroniser avec ton Google Sheet)
             </label>
             <input
               id="gas-url-input"
@@ -350,10 +440,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             />
           </div>
 
-          <div className="field-group" style={{ marginBottom: '0.7rem' }}>
+          <div className="field-group" style={{ marginBottom: '0.75rem' }}>
             <label htmlFor="gas-api-key-input">
               <KeyRound size={13} style={{ display: 'inline', verticalAlign: '-2px', marginRight: '4px' }} />
-              Clé secrète API (doit correspondre à <code>SECRET_API_KEY</code> dans ton script)
+              Clé secrète API (identique à <code>SECRET_API_KEY</code> dans ton script)
             </label>
             <div style={{ display: 'flex', gap: '0.4rem' }}>
               <input
@@ -381,31 +471,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          <div
-            className="gas-actions-inline"
-            style={{ margin: '0.65rem 0', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}
-          >
-            <button type="button" className="secondary-btn" onClick={handleCopyScript}>
-              <Copy size={14} />
-              <span>{copiedScript ? 'Code.gs copié !' : '1. Copier Code.gs sécurisé'}</span>
-            </button>
-            <button
-              type="button"
-              className="primary-btn-sm"
-              onClick={handleTestConnection}
-              disabled={isTesting}
-            >
-              <RefreshCw size={14} className={isTesting ? 'spin' : ''} />
-              <span>{isTesting ? 'Test...' : '2. Tester la connexion'}</span>
-            </button>
-            {isValidAppsScriptUrl(gasUrl) && (
-              <button type="button" className="secondary-btn" onClick={handleCopyMagicLink}>
-                <Link2 size={14} />
-                <span>{copiedMagicLink ? 'Lien magique copié !' : 'Copier mon lien magique'}</span>
-              </button>
-            )}
-          </div>
-
           {testResult && (
             <div
               role="status"
@@ -423,27 +488,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          <p className="gas-help-text">
-            Sans URL configurée, IronPulse fonctionne en <strong>Mode Local 100 % privé</strong> sur ton appareil.
-            Pour relier ton Google Sheet : colle le script sécurisé dans <strong>Extensions &gt; Apps Script</strong>,
-            déploie en <em>Application Web</em> et colle ton URL + clé secrète ci-dessus.
-          </p>
-
-          <div className="gas-form-footer">
-            {sheetMeta.sheetUrl ? (
-              <a
-                href={sheetMeta.sheetUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="open-sheet-link"
-              >
-                <ExternalLink size={15} /> Ouvrir mon Google Sheet
-              </a>
-            ) : (
-              <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                Aucune donnée personnelle partagée
-              </span>
-            )}
+          <div className="gas-form-footer" style={{ marginBottom: '0.9rem' }}>
+            <button
+              type="button"
+              className="secondary-btn"
+              onClick={handleTestConnection}
+              disabled={isTesting}
+            >
+              <RefreshCw size={14} className={isTesting ? 'spin' : ''} />
+              <span>{isTesting ? 'Test...' : 'Tester la connexion'}</span>
+            </button>
 
             <button type="submit" className="primary-btn-sm">
               {savedNotice ? (
@@ -456,6 +510,56 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
           </div>
         </form>
+
+        {/* 4. Collapsible First-Time Setup Guide for Google Apps Script (Code.gs) */}
+        <details className="settings-accordion" open={!hasCloudConfigured}>
+          <summary>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+              <Wrench size={15} />
+              <span>Installer la synchro sur un nouveau Google Sheet (Code.gs)</span>
+            </span>
+            <ChevronDown size={16} className="accordion-chevron" />
+          </summary>
+
+          <div className="settings-accordion-body">
+            <p className="gas-help-text" style={{ marginTop: 0 }}>
+              Si tu veux relier <strong>ton propre Google Sheet</strong> pour sauvegarder tes séances dans le cloud :
+            </p>
+            <ol className="setup-steps-list">
+              <li>
+                Dans ton Google Sheet, ouvre <strong>Extensions &gt; Apps Script</strong>, efface le code existant et
+                colle le script serveur :
+                <div style={{ marginTop: '0.45rem' }}>
+                  <button type="button" className="secondary-btn" onClick={handleCopyScript}>
+                    <Copy size={14} />
+                    <span>{copiedScript ? 'Script Code.gs copié !' : 'Copier le script serveur (Code.gs)'}</span>
+                  </button>
+                </div>
+              </li>
+              <li>
+                Enregistre (<strong>Ctrl + S</strong>), puis clique sur{' '}
+                <strong>Déployer &gt; Nouveau déploiement &gt; Application Web</strong> (<em>Exécuter : Moi</em> ·{' '}
+                <em>Qui a accès : Tout le monde</em>).
+              </li>
+              <li>
+                Copie l&apos;URL <code>/exec</code> générée par Google, colle-la dans le champ ci-dessus avec ta clé
+                secrète, puis clique sur <strong>Enregistrer</strong>.
+              </li>
+            </ol>
+          </div>
+        </details>
+
+        <div className="settings-modal-bottom-link">
+          {sheetMeta.sheetUrl ? (
+            <a href={sheetMeta.sheetUrl} target="_blank" rel="noreferrer" className="open-sheet-link">
+              <ExternalLink size={15} /> Ouvrir mon Google Sheet
+            </a>
+          ) : (
+            <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+              Mode Local actif : tes données restent privées sur cet appareil.
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
