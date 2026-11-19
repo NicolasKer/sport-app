@@ -1,9 +1,9 @@
 // Auto-generated offline Service Worker for IronPulse PWA
-const CACHE_NAME = 'ironpulse-cache-0a3db2457e';
+const CACHE_NAME = 'ironpulse-cache-abd6a31d8c';
 const PRECACHE_URLS = [
   "./",
-  "./assets/index-B9pAahgS.js",
-  "./assets/index-DDh7ATJN.css",
+  "./assets/index-KrfpXC3U.css",
+  "./assets/index-Q4PiY1Uv.js",
   "./favicon.svg",
   "./icons/apple-touch-icon.png",
   "./icons/icon-192.png",
